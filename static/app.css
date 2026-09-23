@@ -322,6 +322,13 @@ tr.podium.p1 td.pos { color: #ffd24a; }
 tr.podium.p2 td.pos { color: #cfd8e2; }
 tr.podium.p3 td.pos { color: #e2a06a; }
 
+/* Same weight as the certificate's finder list, at every breakpoint. */
+td[data-c="bib"] {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.1rem; color: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+
 tr.runner-row { cursor: pointer; }
 tr.runner-row:hover td { background: rgba(255,255,255,.035); }
 tr.runner-row.open td { background: var(--ink-2); }
@@ -699,22 +706,36 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
   h1 { font-size: 1.7rem; }
 
   table.stack thead { display: none; }
+
+  /* The bib is the thing a spectator at a barrier is actually scanning for, so
+     it keeps a column of its own at the same weight it has on the certificate
+     -- not tucked under the name in grey. Four fixed-ish columns, name taking
+     the slack, so a row never wraps even at 360px. */
   table.stack tbody tr.runner-row {
     display: grid;
-    grid-template-columns: 2.6rem 1fr auto;
-    grid-template-areas:
-      "pos name time"
-      "pos meta time";
+    grid-template-columns: 1.9rem 2.9rem minmax(0, 1fr) auto;
     gap: 0 var(--s2);
     align-items: center;
     padding: var(--s2) var(--s1);
     border-bottom: 1px solid var(--rule-soft);
   }
   table.stack tbody tr.runner-row td { border: none; padding: 0; }
-  table.stack td[data-c="pos"]  { grid-area: pos; font-size: 1.15rem; text-align: left; }
-  table.stack td[data-c="name"] { grid-area: name; font-weight: 600; }
-  table.stack td[data-c="bib"]  { grid-area: meta; font-size: .8rem; color: var(--muted); }
-  table.stack td[data-c="time"] { grid-area: time; font-size: 1.05rem; }
+  table.stack td[data-c="pos"] {
+    font-size: 1.05rem; text-align: left; white-space: nowrap;
+  }
+  table.stack td[data-c="bib"] {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+    font-size: 1.15rem; color: var(--paper);
+    text-align: left; white-space: nowrap;
+  }
+  table.stack td[data-c="name"] {
+    font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Category is already in the filter chips, and on a phone it is what pushes
+     a long name into wrapping. */
+  table.stack td[data-c="name"] .tag { display: none; }
+  table.stack td[data-c="time"] { font-size: 1.02rem; white-space: nowrap; }
   /* Progress is the least useful column on a phone and the first to go. */
   table.stack td[data-c="prog"] { display: none; }
 

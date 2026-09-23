@@ -204,6 +204,7 @@ function render() {
     ? `${total} runners.`
     : `${rows.length} of ${total} runners.`;
 
+  const manyRaces = (data.races || []).length > 1;
   const tb = $('rows');
   tb.innerHTML = '';
 
@@ -229,8 +230,9 @@ function render() {
       `<td class="num pos" data-c="pos">${r.position ?? ''}</td>` +
       `<td class="num" data-c="bib">${mark(String(r.bib), q)}</td>` +
       `<td data-c="name">${mark(r.name, q)}${r.category ? ` <span class="tag">${esc(r.category)}</span>` : ''}` +
-      // Only worth showing which race someone ran when several are on screen.
-      `${race === 'all' && r.race ? ` <span class="tag">${esc(r.race)}</span>` : ''}</td>` +
+      // Only worth showing which race someone ran when the event actually has
+      // more than one -- otherwise it is the same tag on every row.
+      `${manyRaces && race === 'all' && r.race ? ` <span class="tag">${esc(r.race)}</span>` : ''}</td>` +
       `<td class="num" data-c="time">${dur(r.finish_seconds)}</td>` +
       `<td data-c="prog">${progress}</td>`;
     tr.onclick = () => { open.has(r.bib) ? open.delete(r.bib) : open.add(r.bib); render(); };
