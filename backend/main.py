@@ -153,6 +153,32 @@ app.add_middleware(
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
+@app.middleware("http")
+async def _revalidate_static(request, call_next):
+    """Make browsers revalidate the app's own files on every load.
+
+    StaticFiles sends an ETag and Last-Modified but no Cache-Control. With no
+    explicit directive a browser falls back to heuristic caching and may serve
+    a stale file without asking, which is how you end up running a cached
+    index page against freshly deployed JavaScript: an element the new script
+    expects is missing, the module throws on load, and the page renders
+    nothing at all.
+
+    "no-cache" does not mean "do not store" -- it means "always revalidate",
+    so the ETag still turns an unchanged file into a cheap 304.
+
+    Uploaded artwork is exempt: its URL already carries a content hash, so it
+    keeps the immutable caching set where it is served.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/"):
+        return response
+    if not response.headers.get("cache-control"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 # --------------------------------------------------------------------------
 # Clock
 # --------------------------------------------------------------------------
