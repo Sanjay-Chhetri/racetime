@@ -302,20 +302,58 @@ Full table in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md#6-api-reference).
 
 ## Deploying
 
-Cheapest setup that holds up:
-
-- **API** on Railway or Fly.io — set `DATABASE_URL` to a Postgres instance and
-  nothing in the code changes.
-- **Postgres** on Supabase's free tier.
-- **HTTPS is not optional** — phone cameras will not start without it. Any of the
-  above gives you a certificate automatically.
-
-Roughly ₹0–1,500 a month until you have real traffic.
+**HTTPS is not optional** — phone cameras will not start without it. Every option
+below issues a certificate automatically.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./racetime.db` | Point at Postgres for production |
+| `DATABASE_URL` | `sqlite:///./racetime.db` | **Required in production.** Postgres URL |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+
+> **Read this before deploying anywhere public.** Every endpoint is
+> unauthenticated. Anyone who finds the URL can create events, edit start lists,
+> void reads and delete races. Put authentication in front of `/admin.html` and
+> the write endpoints first, or keep the deployment private.
+
+### Vercel
+
+The repo ships `vercel.json` and `api/index.py`, which wrap the same FastAPI app
+the local server runs.
+
+```bash
+npm i -g vercel
+vercel login
+vercel link
+vercel env add DATABASE_URL production     # paste your Postgres URL
+vercel --prod
+```
+
+**Vercel is serverless, so Postgres is mandatory.** Provision one first — Vercel
+Postgres, [Neon](https://neon.tech) and [Supabase](https://supabase.com) all have
+a free tier. If `DATABASE_URL` is missing the app refuses to boot with an
+explanatory error rather than silently starting from an empty SQLite file on
+every cold start and losing your race.
+
+Two things to know about this platform:
+
+- **Cold starts.** An idle function takes a second or two to wake. Harmless for
+  results browsing; noticeable if a volunteer's first scan of the morning
+  triggers it.
+- **Nothing may be written to disk.** Uploaded artwork is stored in the database
+  for exactly this reason, so it works here unchanged.
+
+### Railway or Fly.io
+
+A better architectural fit — a long-running process with a persistent disk, so
+there are no cold starts and SQLite would even work for a small race (though
+Postgres is still the right answer).
+
+```bash
+# Railway: point it at the repo, then
+DATABASE_URL=postgresql://...   # add in the dashboard
+```
+
+Roughly ₹0–1,500 a month on any of these until you have real traffic.
 
 ---
 
@@ -381,6 +419,8 @@ so all are additive.
 | A runner is missing from results | They are probably entered against the wrong race — check per-race counts in Race admin. |
 | "Print bibs" does nothing | Open the browser console. The QR library is vendored in `static/vendor/`; if those files are missing the handler aborts. |
 | `no such column` on startup | You are running an old `racetime.db` against newer code without starting through `backend.main`. Migrations run at import. |
+| Deploy crashes with "DATABASE_URL is not set" | Correct behaviour on a serverless host. Provision Postgres and set the variable. |
+| Artwork vanished after deploying | You are on a build from before artwork moved into the database. Re-upload it once. |
 | Two checkpoints both named "Finish" rejected | Names are unique per event. Use `5K Finish` and `10K Finish`. |
 
 ---

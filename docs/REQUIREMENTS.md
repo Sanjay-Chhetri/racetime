@@ -56,7 +56,9 @@ One race day at one venue.
 | `code` | string(24), unique | Used in every public URL |
 | `name` | string(200) | |
 | `start_time` | datetime, nullable | The gun. A race may override it |
-| `artwork_url` | string(255), nullable | Web path of the uploaded artwork |
+| `artwork_url` | string(255), nullable | URL the artwork is served from, with a cache-busting token |
+| `artwork_blob` | binary, nullable | The image itself. Stored here, not on disk, so it survives a host with an ephemeral filesystem |
+| `artwork_type` | string(32), nullable | Sniffed media type, e.g. `image/png` |
 | `accent_color` | string(16), nullable | Hex; defaults to `#f2c500` |
 | `tagline` | string(160), nullable | Line under the race name in print |
 | `bib_style` | `full` \| `band`, nullable | Bib layout; defaults to `full` |
@@ -230,11 +232,12 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-8.1** Upload artwork per event. **PNG, JPEG or WebP only, 5 MB maximum.**
 - **FR-8.2** The file type is determined by **inspecting magic bytes**, not the
   declared `Content-Type`. SVG is refused — see [§8.2](#82-no-svg-uploads).
-- **FR-8.3** The stored filename is generated server-side and never derived from
-  the uploaded name, closing a path-traversal hole. A random suffix doubles as
-  cache-busting.
-- **FR-8.4** Replacing artwork deletes the previous file; a failure to delete is
-  swallowed, since a stray file is harmless but a failed request is not.
+- **FR-8.3** The image is stored **in the database**, never on disk. The uploaded
+  filename is discarded, which also closes the usual path-traversal hole. The
+  serving URL carries a random token for cache-busting, so it can be cached
+  immutably and a new upload still takes effect immediately.
+- **FR-8.4** Replacing artwork overwrites the stored bytes in a single
+  transaction; there is no orphaned file to clean up.
 - **FR-8.5** Accent colour and tagline are set independently of the image. A
   partial update never clears a field it did not mention.
 - **FR-8.6** Two bib layouts, selectable per event:
@@ -293,8 +296,9 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 | **NFR-5** | Results are derived, never stored, so corrections need no migration. |
 | **NFR-6** | Print output uses `print-color-adjust: exact` so browsers do not strip backgrounds. |
 | **NFR-7** | Runner names are HTML-escaped everywhere they are rendered, since they arrive from pasted text and uploaded CSVs. |
-| **NFR-8** | SQLite by default with zero setup; `DATABASE_URL` switches to Postgres with no code change. |
-| **NFR-9** | Schema migrations run automatically at import and are idempotent. |
+| **NFR-8** | SQLite by default with zero setup; `DATABASE_URL` switches to Postgres with no code change. A legacy `postgres://` prefix is normalised automatically. |
+| **NFR-9** | Schema migrations run automatically at import and are idempotent, including a one-time move of any legacy on-disk artwork into the database. |
+| **NFR-10** | **Nothing is written to the filesystem at runtime.** The app therefore runs unchanged on a serverless host. On Vercel it refuses to boot without `DATABASE_URL` rather than silently starting from an empty SQLite file on each cold start. |
 
 ---
 
@@ -468,7 +472,25 @@ None of these require a data-model change; all are additive.
 
 ---
 
-## 12. Running it
+## 12. Deployment
+
+| Platform | Fit | Notes |
+|---|---|---|
+| **Railway / Fly.io** | Best | Long-running process, persistent disk, no cold starts |
+| **Vercel** | Workable | Serverless. `vercel.json` and `api/index.py` are included. **Postgres is mandatory** — the app refuses to boot on Vercel without `DATABASE_URL`. Expect cold starts of a second or two |
+
+Required environment:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./racetime.db` | Postgres URL in production |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+
+HTTPS is mandatory in any deployment: phone cameras will not start without it.
+
+---
+
+## 13. Running it
 
 ```bash
 python -m venv .venv

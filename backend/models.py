@@ -10,7 +10,7 @@ still there.
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, String,
+    Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String,
     UniqueConstraint, Index,
 )
 from sqlalchemy.orm import relationship
@@ -37,6 +37,12 @@ class Event(Base):
     # artwork is stored as the web path it is served from, not a disk path, so
     # the frontend can drop it straight into a src/background-image.
     artwork_url = Column(String(255), nullable=True)
+    # The image itself lives in the database, not on disk. A serverless host
+    # gives every request a fresh, empty filesystem, so anything written to
+    # static/uploads is gone by the next invocation. Race artwork is one small
+    # image per event, so the row is cheap and it survives any host.
+    artwork_blob = Column(LargeBinary, nullable=True)
+    artwork_type = Column(String(32), nullable=True)
     accent_color = Column(String(16), nullable=True)
     # Free text under the race name: "12 October 2026 · Siliguri".
     tagline = Column(String(160), nullable=True)

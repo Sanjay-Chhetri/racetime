@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -84,8 +84,53 @@ def _backfill_default_race():
         db.close()
 
 
+def _import_disk_artwork():
+    """Move any artwork still sitting in static/uploads into the database.
+
+    Artwork used to be written to disk. That cannot work on a host with an
+    ephemeral filesystem, so it now lives in a column. This carries the old
+    files across once; it is a no-op on a fresh install and after the first run.
+    """
+    upload_dir = Path(__file__).resolve().parent.parent / "static" / "uploads"
+    db = SessionLocal()
+    try:
+        stale = db.query(Event).filter(
+            Event.artwork_url.isnot(None), Event.artwork_blob.is_(None)).all()
+        moved = 0
+        for ev in stale:
+            if not ev.artwork_url.startswith("/uploads/"):
+                continue
+            src = upload_dir / Path(ev.artwork_url).name
+            if not src.exists():
+                # The file is gone, so the URL points at nothing. Clearing it
+                # beats leaving a broken image on every bib.
+                ev.artwork_url = None
+                continue
+            blob = src.read_bytes()
+            try:
+                ev.artwork_type = _sniff_image(blob)
+            except HTTPException:
+                ev.artwork_url = None
+                continue
+            ev.artwork_blob = blob
+            ev.artwork_url = f"/api/events/{ev.code}/artwork?v={secrets.token_hex(4)}"
+            moved += 1
+        if stale:
+            db.commit()
+        if moved:
+            print(f"Moved artwork for {moved} event(s) from disk into the database.")
+    finally:
+        db.close()
+
+
+# SQLite and Postgres spell a binary column differently, and this is the only
+# place the two disagree.
+_BLOB = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+
 _add_missing_columns("events", {
     "artwork_url": "VARCHAR(255)",
+    "artwork_blob": _BLOB,
+    "artwork_type": "VARCHAR(32)",
     "accent_color": "VARCHAR(16)",
     "tagline": "VARCHAR(160)",
     "bib_style": "VARCHAR(8)",
@@ -172,36 +217,40 @@ def set_start(code: str, at: datetime | None = None, db: Session = Depends(get_d
 # Branding -- artwork for printed bibs and finisher certificates
 # --------------------------------------------------------------------------
 
-UPLOAD_DIR = STATIC_DIR / "uploads"
 MAX_ARTWORK_BYTES = 5 * 1024 * 1024
 
 # Raster only, and deliberately no SVG. Uploads are served from our own origin,
 # and an SVG is a script-execution vector, so accepting one would hand anybody
 # who can reach the admin page stored XSS on every page that shows the artwork.
 ARTWORK_TYPES = {
-    b"\x89PNG\r\n\x1a\n": ".png",
-    b"\xff\xd8\xff": ".jpg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"\xff\xd8\xff": "image/jpeg",
 }
 
 
 def _sniff_image(blob: bytes) -> str:
-    """Return the extension for `blob`, trusting its bytes rather than the
+    """Return the media type for `blob`, trusting its bytes rather than the
     client-supplied content type, which is just a header anyone can set."""
-    for magic, ext in ARTWORK_TYPES.items():
+    for magic, mime in ARTWORK_TYPES.items():
         if blob.startswith(magic):
-            return ext
+            return mime
     # WebP is RIFF....WEBP, so it needs a look past the 4-byte length field.
     if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
-        return ".webp"
+        return "image/webp"
     raise HTTPException(422, "Artwork must be a PNG, JPEG or WebP image")
+
+
+_import_disk_artwork()
 
 
 @app.post("/api/events/{code}/artwork", response_model=schemas.EventOut)
 async def upload_artwork(code: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Attach race artwork to an event.
 
-    The stored filename is generated here and never derived from the uploaded
-    one -- a client-supplied name is the classic path-traversal hole.
+    Stored in the database rather than on disk. A serverless host hands every
+    request a fresh, empty filesystem, so a file written here would be gone by
+    the next invocation -- and the uploaded filename is never used for anything,
+    which also closes the usual path-traversal hole.
     """
     ev = _get_event(db, code)
     blob = await file.read()
@@ -210,40 +259,39 @@ async def upload_artwork(code: str, file: UploadFile = File(...), db: Session = 
     if len(blob) > MAX_ARTWORK_BYTES:
         raise HTTPException(
             413, f"Artwork must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
-    ext = _sniff_image(blob)
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    # The random suffix doubles as cache-busting: browsers and the print
-    # preview would otherwise keep showing last week's logo at the same URL.
-    fname = f"{ev.code}-{secrets.token_hex(4)}{ext}"
-    (UPLOAD_DIR / fname).write_bytes(blob)
-
-    old = ev.artwork_url
-    ev.artwork_url = f"/uploads/{fname}"
+    ev.artwork_type = _sniff_image(blob)
+    ev.artwork_blob = blob
+    # The random token is cache-busting: browsers and the print preview would
+    # otherwise keep showing last week's logo at an unchanged URL.
+    ev.artwork_url = f"/api/events/{ev.code}/artwork?v={secrets.token_hex(4)}"
     db.commit()
     db.refresh(ev)
-
-    if old and old.startswith("/uploads/"):
-        # Best effort: a leftover file is harmless, a crashed request is not.
-        try:
-            (UPLOAD_DIR / Path(old).name).unlink(missing_ok=True)
-        except OSError:
-            pass
     return ev
+
+
+@app.get("/api/events/{code}/artwork")
+def get_artwork(code: str, db: Session = Depends(get_db)):
+    """Serve the stored image. The URL carries a cache-busting token, so this
+    can be cached hard -- a new upload produces a new URL."""
+    ev = _get_event(db, code)
+    if not ev.artwork_blob:
+        raise HTTPException(404, "This event has no artwork")
+    return Response(
+        content=ev.artwork_blob,
+        media_type=ev.artwork_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut)
 def clear_artwork(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
-    old = ev.artwork_url
     ev.artwork_url = None
+    ev.artwork_blob = None
+    ev.artwork_type = None
     db.commit()
     db.refresh(ev)
-    if old and old.startswith("/uploads/"):
-        try:
-            (UPLOAD_DIR / Path(old).name).unlink(missing_ok=True)
-        except OSError:
-            pass
     return ev
 
 
