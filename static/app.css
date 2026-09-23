@@ -721,3 +721,117 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
   button, select { min-height: 2.9rem; }
   .chip { min-height: 2.2rem; }
 }
+
+/* ---------- starter guide ----------
+   A one-page visual explainer. Also written to print cleanly on A4, because
+   the most useful version of this is a sheet handed to a volunteer who has
+   never seen the app and has no signal to read it online. */
+
+.guide { max-width: 60rem; margin: 0 auto; }
+
+.guide .lede {
+  font-size: 1.12rem; color: var(--paper); max-width: 46ch;
+  margin-bottom: var(--s6);
+}
+
+.guide h2 {
+  display: flex; align-items: center; gap: var(--s3);
+  margin: var(--s6) 0 var(--s4); font-size: 1.5rem;
+}
+.guide h2 .step {
+  flex: none;
+  width: 2rem; height: 2rem; border-radius: 50%;
+  background: var(--paint); color: #1a1500;
+  display: grid; place-items: center;
+  font-size: 1rem; font-weight: 700;
+}
+
+/* Actor cards: who does what, on which device. */
+.actors { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.actor {
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-top: 3px solid var(--paint);
+  border-radius: var(--r2); padding: var(--s4);
+}
+.actor .who {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.2rem; text-transform: uppercase; letter-spacing: .02em;
+}
+.actor .dev { font-size: .78rem; color: var(--paint); margin-bottom: var(--s2); }
+.actor p { font-size: .9rem; margin: 0 0 var(--s3); }
+.actor .go {
+  display: inline-block; font-size: .82rem; font-weight: 600;
+  text-decoration: none; padding: .35rem .7rem;
+  border: 1px solid var(--rule); border-radius: var(--r1);
+  color: var(--paint);
+}
+.actor .go:hover { background: var(--ink-3); }
+
+/* Numbered steps down the left, with a rule connecting them. */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.steps > li {
+  position: relative; counter-increment: s;
+  padding: 0 0 var(--s5) 3.2rem;
+  border-left: 2px solid var(--rule);
+  margin-left: 1rem;
+}
+.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+.steps > li::before {
+  content: counter(s);
+  position: absolute; left: -1.05rem; top: -.15rem;
+  width: 2rem; height: 2rem; border-radius: 50%;
+  background: var(--ink-3); border: 2px solid var(--ink);
+  color: var(--paper); font-weight: 700; font-size: .92rem;
+  display: grid; place-items: center;
+}
+.steps .t {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.18rem; line-height: 1.2; margin-bottom: .15rem;
+}
+.steps .d { font-size: .92rem; color: var(--muted); max-width: 54ch; }
+.steps .d code {
+  background: var(--ink-3); padding: .05rem .3rem; border-radius: 3px;
+  font-size: .85em; color: var(--paper);
+}
+
+/* A short warning that has cost somebody a race before. */
+.watch {
+  display: flex; gap: var(--s3); align-items: flex-start;
+  margin-top: var(--s2); padding: var(--s3);
+  background: rgba(242, 197, 0, .07);
+  border-left: 3px solid var(--paint);
+  border-radius: 0 var(--r1) var(--r1) 0;
+  font-size: .86rem; color: var(--paper); max-width: 54ch;
+}
+.watch b { color: var(--paint); }
+
+figure.figure {
+  margin-inline: 0;
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r2); padding: var(--s4);
+  margin: var(--s4) 0;
+}
+.figure svg { width: 100%; height: auto; display: block; }
+.figure figcaption {
+  font-size: .82rem; color: var(--muted); margin-top: var(--s3);
+  text-align: center;
+}
+
+.facts { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.fact {
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r2); padding: var(--s4);
+}
+.fact .h {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.05rem; color: var(--paint); margin-bottom: var(--s1);
+}
+.fact p { font-size: .88rem; margin: 0; }
+
+@media print {
+  .guide { max-width: none; }
+  .guide h2 { break-after: avoid; page-break-after: avoid; }
+  .actor, .fact, .figure, .steps > li { break-inside: avoid; page-break-inside: avoid; }
+  .actor .go { display: none; }
+  @page { size: A4 portrait; margin: 14mm; }
+}

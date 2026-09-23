@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<title>How RaceTime works · Starter guide</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div class="masthead noprint">
+  <h1>How RaceTime works</h1>
+  <span class="where"><a href="/">home</a></span>
+</div>
+
+<div class="guide">
+
+<p class="lede">Three groups of people, four screens, one database. Volunteers
+scan bib QR codes on ordinary phones; everything else is worked out from those
+scans.</p>
+
+<div class="row noprint" style="margin-bottom:2rem">
+  <button onclick="window.print()" class="primary" style="flex:0 1 auto">Print this guide</button>
+  <span class="note" style="flex:1 1 auto;align-self:center">Prints on one A4 sheet — useful for volunteers with no signal.</span>
+</div>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">◆</span>The shape of it</h2>
+
+<figure class="figure">
+  <svg viewBox="0 0 760 260" role="img"
+       aria-label="Organiser sets up the race on a laptop. Volunteers capture scans on phones, which queue offline and sync. Runners and the public read live results and print certificates. All three meet at one database.">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#8b97a6"/>
+      </marker>
+    </defs>
+
+    <!-- three actors -->
+    <g>
+      <rect x="10" y="20" width="200" height="74" rx="8" fill="#1c222a" stroke="#f2c500" stroke-width="2"/>
+      <text x="26" y="47" fill="#e9ecef" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="19">ORGANISER</text>
+      <text x="26" y="68" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="13">Laptop, before race day</text>
+      <text x="26" y="86" fill="#f2c500" font-family="IBM Plex Mono, monospace" font-size="11">/admin.html</text>
+    </g>
+
+    <g>
+      <rect x="10" y="108" width="200" height="74" rx="8" fill="#1c222a" stroke="#34a06b" stroke-width="2"/>
+      <text x="26" y="135" fill="#e9ecef" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="19">VOLUNTEER</text>
+      <text x="26" y="156" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="13">Phone, at a checkpoint</text>
+      <text x="26" y="174" fill="#f2c500" font-family="IBM Plex Mono, monospace" font-size="11">/checkpoint.html</text>
+    </g>
+
+    <g>
+      <rect x="10" y="196" width="200" height="54" rx="8" fill="#1c222a" stroke="#8b97a6" stroke-width="2"/>
+      <text x="26" y="222" fill="#e9ecef" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="19">RUNNER</text>
+      <text x="26" y="241" fill="#f2c500" font-family="IBM Plex Mono, monospace" font-size="11">/results.html · /certificate.html</text>
+    </g>
+
+    <!-- arrows in -->
+    <path d="M216 57 L338 120" stroke="#8b97a6" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <path d="M216 145 L338 132" stroke="#8b97a6" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <path d="M356 160 L232 216" stroke="#8b97a6" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+
+    <text x="250" y="80" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="11">sets up</text>
+    <text x="248" y="124" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="11">scans</text>
+    <text x="252" y="196" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="11">reads</text>
+
+    <!-- the database -->
+    <g>
+      <rect x="352" y="96" width="176" height="72" rx="8" fill="#272f39" stroke="#f2c500" stroke-width="2"/>
+      <text x="440" y="124" fill="#f2c500" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="18">READS</text>
+      <text x="440" y="144" fill="#e9ecef" text-anchor="middle" font-family="Barlow, sans-serif" font-size="12">append-only</text>
+      <text x="440" y="160" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11">every sighting, kept</text>
+    </g>
+
+    <path d="M532 132 L604 132" stroke="#8b97a6" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <text x="536" y="122" fill="#8b97a6" font-family="Barlow, sans-serif" font-size="11">computed</text>
+
+    <!-- derived -->
+    <g>
+      <rect x="616" y="80" width="134" height="104" rx="8" fill="#1c222a" stroke="#8b97a6" stroke-width="1.4"/>
+      <text x="683" y="106" fill="#e9ecef" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="15">RESULTS</text>
+      <text x="683" y="126" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11.5">splits</text>
+      <text x="683" y="143" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11.5">rankings</text>
+      <text x="683" y="160" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11.5">certificates</text>
+      <text x="683" y="177" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="10">never stored</text>
+    </g>
+  </svg>
+  <figcaption>Results are recalculated from the reads on every request. Fix a bad
+  scan and the leaderboard corrects itself — no repair job.</figcaption>
+</figure>
+
+<div class="actors">
+  <div class="actor">
+    <div class="who">Organiser</div>
+    <div class="dev">Laptop · before race day</div>
+    <p>Builds the race, loads the start list, prints the bibs, fires the gun.</p>
+    <a class="go" href="/admin.html">Open race admin →</a>
+  </div>
+  <div class="actor">
+    <div class="who">Volunteer</div>
+    <div class="dev">Phone · at a checkpoint</div>
+    <p>Points the camera at bibs. Keeps working with no signal at all.</p>
+    <a class="go" href="/checkpoint.html">Open checkpoint →</a>
+  </div>
+  <div class="actor">
+    <div class="who">Runner</div>
+    <div class="dev">Any device · during and after</div>
+    <p>Follows the leaderboard, then prints a finisher certificate.</p>
+    <a class="go" href="/results.html">Open results →</a>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">1</span>Before race day</h2>
+
+<ol class="steps">
+  <li>
+    <div class="t">Create the event</div>
+    <div class="d">Pick a short code like <code>siliguri10k</code>. It appears in
+    every public link, so keep it easy to type.</div>
+  </li>
+  <li>
+    <div class="t">Add a race for each distance</div>
+    <div class="d">A 5K and a 10K on the same morning are two <em>races</em> in
+    one <em>event</em>. Each is ranked on its own, so nobody is placed against a
+    field that ran a different distance. Even a single-distance event needs one.</div>
+  </li>
+  <li>
+    <div class="t">Add checkpoints to each race</div>
+    <div class="d">Every race needs exactly one marked <code>finish</code>.
+    Splits are optional but make the results far more interesting.</div>
+    <div class="watch"><b>Watch out:</b> checkpoint names are unique across the
+    whole event, not per race — volunteers pick from one flat list. Name them
+    <code>5K Finish</code> and <code>10K Finish</code>, never both "Finish".</div>
+  </li>
+  <li>
+    <div class="t">Load the start list</div>
+    <div class="d">Paste <code>bib, name, category, gender</code> one per line, or
+    upload a CSV that may also carry a <code>race</code> column so one file covers
+    every distance. Re-importing is safe — bibs already entered are skipped.</div>
+    <div class="watch"><b>Check the per-race counts</b> shown next to each race
+    afterwards. A whole distance imported against the wrong race is obvious there
+    and painful to spot later.</div>
+  </li>
+  <li>
+    <div class="t">Upload artwork and print the bibs</div>
+    <div class="d">A 3:2 image around 3000&nbsp;×&nbsp;2000&nbsp;px works best,
+    with the focal point centred and no text in the image. Two bibs fit an A4
+    sheet.</div>
+    <div class="watch"><b>Print one first</b> and look at it on your actual
+    printer before committing to a few hundred. Full-bleed artwork looks best but
+    uses a lot of ink; the band layout is cheaper and reads better at distance.</div>
+  </li>
+</ol>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">2</span>What a bib carries</h2>
+
+<figure class="figure">
+  <svg viewBox="0 0 700 240" role="img"
+       aria-label="A printed bib: artwork band across the top with the race name, a large bib number in the middle, the runner's name and category bottom left, and a QR code on a white tile bottom right encoding RT, the event code and the bib number.">
+    <!-- bib -->
+    <rect x="20" y="20" width="360" height="200" rx="6" fill="#ffffff"/>
+    <rect x="20" y="20" width="360" height="52" fill="#3b4a5e"/>
+    <text x="34" y="54" fill="#ffffff" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="21">SILIGURI HILL RUN 10K</text>
+    <text x="200" y="152" fill="#111111" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="76">26</text>
+    <rect x="20" y="170" width="360" height="3" fill="#f2c500"/>
+    <text x="34" y="196" fill="#111111" font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="17">TENZING BHUTIA</text>
+    <text x="34" y="212" fill="#5a6675" font-family="Barlow, sans-serif" font-size="11">Open · 10K · 12 October 2026</text>
+    <!-- qr tile -->
+    <rect x="300" y="176" width="64" height="40" rx="3" fill="#ffffff" stroke="#cfd6de"/>
+    <g fill="#111111">
+      <rect x="306" y="180" width="9" height="9"/><rect x="318" y="180" width="5" height="5"/>
+      <rect x="331" y="180" width="9" height="9"/><rect x="306" y="192" width="5" height="5"/>
+      <rect x="320" y="192" width="7" height="7"/><rect x="333" y="194" width="5" height="5"/>
+      <rect x="306" y="203" width="9" height="9"/><rect x="320" y="205" width="5" height="5"/>
+      <rect x="331" y="203" width="9" height="9"/><rect x="345" y="186" width="5" height="5"/>
+      <rect x="347" y="200" width="7" height="7"/>
+    </g>
+
+    <!-- callouts -->
+    <g stroke="#8b97a6" stroke-width="1.3" fill="none">
+      <path d="M382 46 L430 46"/>
+      <path d="M382 130 L430 118"/>
+      <path d="M382 196 L430 178"/>
+      <path d="M368 214 L430 226"/>
+    </g>
+    <g font-family="Barlow, sans-serif" font-size="12.5">
+      <text x="438" y="42" fill="#f2c500" font-weight="600">Your artwork</text>
+      <text x="438" y="58" fill="#8b97a6">edge to edge, or a band</text>
+
+      <text x="438" y="114" fill="#f2c500" font-weight="600">Bib number</text>
+      <text x="438" y="130" fill="#8b97a6">readable at ten metres</text>
+
+      <text x="438" y="174" fill="#f2c500" font-weight="600">Name, category, distance</text>
+      <text x="438" y="190" fill="#8b97a6">distance comes from the race</text>
+
+      <text x="438" y="222" fill="#f2c500" font-weight="600">QR on a white tile</text>
+      <text x="438" y="238" fill="#8b97a6">RT|event|bib</text>
+    </g>
+  </svg>
+  <figcaption>The QR carries the event as well as the bib, so a bib from last
+  month's race cannot be scanned into this one by mistake. The white tile is not
+  decoration — a code printed over artwork is the usual reason a scan fails.</figcaption>
+</figure>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">3</span>On the morning</h2>
+
+<ol class="steps">
+  <li>
+    <div class="t">Set up each volunteer phone while you still have wifi</div>
+    <div class="d">Open <code>/checkpoint.html</code>, enter the event code, pick
+    that phone's checkpoint, and wait for the clock sync to finish. It caches the
+    start list, so from then on it works with no signal.</div>
+    <div class="watch"><b>Why the clock sync matters:</b> a phone that is eight
+    seconds fast silently adds eight seconds to every split it records, and
+    nothing downstream could detect it. Each device measures itself against the
+    server and corrects every scan.</div>
+  </li>
+  <li>
+    <div class="t">Add it to the home screen, leave the screen on</div>
+    <div class="d">A locked phone stops scanning.</div>
+  </li>
+  <li>
+    <div class="t">Fire the gun as the race starts</div>
+    <div class="d">From Race admin. For a staggered start, set each race's own
+    start time instead of the event gun.</div>
+    <div class="watch"><b>Never fire the gun afterwards.</b> Scans that predate
+    the start time produce negative elapsed times, which show as
+    <code>0:00:00</code> rather than raising an error.</div>
+  </li>
+  <li>
+    <div class="t">Scan bibs as runners pass</div>
+    <div class="d">The whole screen flashes the bib number so a volunteer can
+    confirm it at arm's length in sunlight. Repeat scans of the same bib within
+    eight seconds collapse into one sighting. A bib can always be typed by hand.</div>
+  </li>
+</ol>
+
+<figure class="figure">
+  <svg viewBox="0 0 700 150" role="img"
+       aria-label="A scan is written to the phone's local queue and confirmed immediately. A separate loop sends queued scans to the server whenever a connection exists, and only removes them from the queue after the server confirms.">
+    <g font-family="Barlow Condensed, sans-serif" font-weight="700" font-size="14" fill="#e9ecef" text-anchor="middle">
+      <rect x="14" y="44" width="124" height="58" rx="8" fill="#1c222a" stroke="#34a06b" stroke-width="2"/>
+      <text x="76" y="70">SCAN</text>
+      <text x="76" y="90" font-family="Barlow, sans-serif" font-weight="400" font-size="11.5" fill="#8b97a6">camera or typed</text>
+
+      <rect x="196" y="44" width="150" height="58" rx="8" fill="#1c222a" stroke="#f2c500" stroke-width="2"/>
+      <text x="271" y="70">LOCAL QUEUE</text>
+      <text x="271" y="90" font-family="Barlow, sans-serif" font-weight="400" font-size="11.5" fill="#8b97a6">on the phone</text>
+
+      <rect x="404" y="44" width="140" height="58" rx="8" fill="#1c222a" stroke="#8b97a6" stroke-width="2"/>
+      <text x="474" y="70">SYNC LOOP</text>
+      <text x="474" y="90" font-family="Barlow, sans-serif" font-weight="400" font-size="11.5" fill="#8b97a6">when online</text>
+
+      <rect x="600" y="44" width="90" height="58" rx="8" fill="#272f39" stroke="#f2c500" stroke-width="2"/>
+      <text x="645" y="78" fill="#f2c500">SERVER</text>
+    </g>
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#8b97a6"/>
+      </marker>
+    </defs>
+    <g stroke="#8b97a6" stroke-width="1.6" fill="none" marker-end="url(#ar2)">
+      <path d="M142 73 L190 73"/>
+      <path d="M350 73 L398 73"/>
+      <path d="M548 73 L594 73"/>
+    </g>
+    <path d="M645 110 C645 134, 271 134, 271 110" stroke="#34a06b" stroke-width="1.6" fill="none" marker-end="url(#ar2)" stroke-dasharray="4 3"/>
+    <text x="458" y="145" fill="#34a06b" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11">confirmed — only now is it dropped from the queue</text>
+    <text x="166" y="36" fill="#8b97a6" text-anchor="middle" font-family="Barlow, sans-serif" font-size="11">instant</text>
+  </svg>
+  <figcaption>A scan is acknowledged the moment it is stored locally, so the
+  volunteer is never waiting on the network. Nothing leaves the queue until the
+  server confirms it, so an ambiguous failure always resolves towards resending
+  rather than losing a runner.</figcaption>
+</figure>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">4</span>During and after the race</h2>
+
+<ol class="steps">
+  <li>
+    <div class="t">Anyone follows the live leaderboard</div>
+    <div class="d">Share <code>/results.html#your-event-code</code>. Search by
+    name or bib, filter by race, status or category, and tap a runner for their
+    splits and placings. It refreshes itself every ten seconds.</div>
+  </li>
+  <li>
+    <div class="t">Check the raw reads before publishing</div>
+    <div class="d">Race admin lists every sighting the system has received. Look
+    for clock-drift warnings, unknown bibs, and anyone showing a late split but no
+    finish. A suspect read can be <em>voided</em> — excluded from timing while the
+    row itself is kept.</div>
+    <div class="watch"><b>Nothing is ever deleted.</b> That is what lets you
+    correct a mistake and re-derive the results instead of arguing about them.</div>
+  </li>
+  <li>
+    <div class="t">Runners print their certificate</div>
+    <div class="d">At <code>/certificate.html</code> they pick the race and find
+    themselves <em>by name</em> — most people have binned the bib by then. It
+    carries their finish time, overall and category placings, splits and average
+    pace, on the race artwork.</div>
+  </li>
+</ol>
+
+<!-- ------------------------------------------------------------------ -->
+<h2><span class="step">◆</span>Three things that keep it honest</h2>
+
+<div class="facts">
+  <div class="fact">
+    <div class="h">Clock correction</div>
+    <p>Every scan is corrected by that phone's measured clock offset. The raw
+    device time and the correction applied are both stored, so a disputed result
+    can be audited afterwards.</p>
+  </div>
+  <div class="fact">
+    <div class="h">Idempotent ingest</div>
+    <p>Each scan gets a unique id generated on the phone, and that id is the
+    primary key. A phone coming back from a dead zone can resend its whole queue
+    as often as it likes without creating duplicates.</p>
+  </div>
+  <div class="fact">
+    <div class="h">Append-only history</div>
+    <p>Every sighting is kept exactly as it arrived. Results are recomputed from
+    them on demand, so voiding a bad read fixes the leaderboard on the next
+    refresh with no migration and no repair job.</p>
+  </div>
+</div>
+
+<p class="note" style="margin-top:2.5rem">
+  Full documentation is in the project README and <code>docs/REQUIREMENTS.md</code>.
+</p>
+
+</div>
+</body>
+</html>
