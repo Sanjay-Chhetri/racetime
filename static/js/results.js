@@ -4,6 +4,8 @@
    payload -- it is a few hundred rows at most, and doing it locally keeps the
    typing instant and survives a flaky connection. */
 
+import { esc, ok, fail, emptyState } from '/js/ui.js';
+
 const $ = id => document.getElementById(id);
 const code = location.hash.slice(1) || new URLSearchParams(location.search).get('event');
 
@@ -13,9 +15,7 @@ let sort = { key: 'position', dir: 'asc' };
 let status = 'all';
 let category = 'all';
 let race = 'all';
-
-const esc = s => String(s ?? '').replace(/[&<>"']/g,
-  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let offline = false;
 
 const dur = s => {
   if (s == null) return '—';
@@ -49,7 +49,8 @@ function mark(text, q) {
 
 async function poll() {
   if (!code) {
-    $('rows').innerHTML = '<tr><td colspan="5" class="empty">Add an event code to the address, like /results.html#siliguri10k</td></tr>';
+    $('rows').innerHTML = emptyState(5, 'No race chosen',
+      'Add an event code to the address, like /results.html#siliguri10k');
     return;
   }
   try {
@@ -60,8 +61,18 @@ async function poll() {
     document.title = `${data.event.name} · Results`;
     renderChips();
     render();
+    offline = false;
   } catch (e) {
-    $('rows').innerHTML = `<tr><td colspan="5" class="empty">Could not load results for “${esc(code)}”.</td></tr>`;
+    // Only shout on the first failure. Once results are on screen a dropped
+    // poll is a network blip, and blanking the table would be worse than
+    // showing times that are ten seconds stale.
+    if (!data) {
+      $('rows').innerHTML = emptyState(5, `Could not load “${code}”`,
+        'Check the event code, or try again in a moment.');
+    } else if (!offline) {
+      offline = true;
+      fail('Lost contact with the timing server. Showing the last known results.');
+    }
   }
 }
 
@@ -197,7 +208,10 @@ function render() {
   tb.innerHTML = '';
 
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="5" class="empty">No runners match.</td></tr>';
+    const filtered = q || race !== 'all' || status !== 'all' || category !== 'all';
+    tb.innerHTML = filtered
+      ? emptyState(5, 'No runners match', 'Try clearing a filter or searching for less.')
+      : emptyState(5, 'Nobody is entered yet', 'Runners appear here once the start list is loaded.');
     return;
   }
 
@@ -210,14 +224,15 @@ function render() {
     const progress = r.splits.length
       ? esc(r.splits[r.splits.length - 1].checkpoint)
       : `<span class="tag ${tone}">${label}</span>`;
+    // data-c drives the phone layout, where the table becomes stacked cards.
     tr.innerHTML =
-      `<td class="num pos">${r.position ?? ''}</td>` +
-      `<td class="num">${mark(String(r.bib), q)}</td>` +
-      `<td>${mark(r.name, q)}${r.category ? ` <span class="tag">${esc(r.category)}</span>` : ''}` +
+      `<td class="num pos" data-c="pos">${r.position ?? ''}</td>` +
+      `<td class="num" data-c="bib">${mark(String(r.bib), q)}</td>` +
+      `<td data-c="name">${mark(r.name, q)}${r.category ? ` <span class="tag">${esc(r.category)}</span>` : ''}` +
       // Only worth showing which race someone ran when several are on screen.
       `${race === 'all' && r.race ? ` <span class="tag">${esc(r.race)}</span>` : ''}</td>` +
-      `<td class="num">${dur(r.finish_seconds)}</td>` +
-      `<td>${progress}</td>`;
+      `<td class="num" data-c="time">${dur(r.finish_seconds)}</td>` +
+      `<td data-c="prog">${progress}</td>`;
     tr.onclick = () => { open.has(r.bib) ? open.delete(r.bib) : open.add(r.bib); render(); };
     tb.appendChild(tr);
 
@@ -240,6 +255,7 @@ function placings(r) {
 
 function detailRow(r) {
   const det = document.createElement('tr');
+  det.className = 'detailrow';
   const splits = r.splits.length
     ? r.splits.map(s =>
         `<div class="sp">
@@ -276,8 +292,11 @@ async function share(r) {
     // The native sheet on a phone is what people actually use; the clipboard
     // is the desktop fallback.
     if (navigator.share) await navigator.share({ title: data.event.name, text, url });
-    else { await navigator.clipboard.writeText(`${text}\n${url}`); alert('Result copied to clipboard.'); }
-  } catch { /* the user dismissed the share sheet */ }
+    else { await navigator.clipboard.writeText(`${text}\n${url}`); ok('Result copied to clipboard.'); }
+  } catch (e) {
+    // AbortError just means the share sheet was dismissed, which is not a fault.
+    if (e && e.name !== 'AbortError') fail('Could not share that result.');
+  }
 }
 
 $('find').oninput = () => data && render();

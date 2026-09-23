@@ -5,11 +5,9 @@
    The entry point is the runner's name, not the bib. Anyone coming back for a
    certificate weeks after the race has thrown the bib away. */
 import QRCode from '/vendor/qrcode.esm.js';
+import { esc, fail } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
-
-const esc = s => String(s ?? '').replace(/[&<>"']/g,
-  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const dur = s => {
   if (s == null) return '—';
@@ -71,6 +69,7 @@ async function selectEvent(code) {
     if (data.detail) throw new Error(data.detail);
   } catch (e) {
     $('err').textContent = `Could not load that race (${e.message}).`;
+    fail('Could not load that race.');
     data = ev = null;
     return;
   }

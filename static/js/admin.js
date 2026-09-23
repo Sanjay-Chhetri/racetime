@@ -1,4 +1,7 @@
 import QRCode from '/vendor/qrcode.esm.js';
+// Runner names and race names reach the bib and the certificate as markup, and
+// they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
+import { esc, ok, fail, confirmDialog, withBusy } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 let ev = null;
@@ -10,28 +13,28 @@ const api = async (path, opts) => {
   return body;
 };
 
-const fmtTime = iso => iso ? new Date(iso).toLocaleString() : 'not started';
+const json = (method, body) => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
 
-// Runner names and race names reach the bib and the certificate as markup, and
-// they arrive from a pasted list or an uploaded CSV, so they get escaped.
-const esc = s => String(s ?? '').replace(/[&<>"']/g,
-  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtTime = iso => iso ? new Date(iso).toLocaleString() : 'not started';
 
 /* ---------- open / create ---------- */
 
 $('open').onclick = () => load($('code').value.trim());
 
-$('create').onclick = async () => {
+$('create').onclick = e => withBusy(e.currentTarget, async () => {
   $('err').textContent = '';
   try {
-    const created = await api('/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: $('newCode').value.trim(), name: $('newName').value.trim() }),
-    });
+    const created = await api('/events', json('POST', {
+      code: $('newCode').value.trim(), name: $('newName').value.trim(),
+    }));
+    ok(`Created “${created.name}”.`);
     load(created.code);
-  } catch (e) { $('err').textContent = e.message; }
-};
+  } catch (err) { $('err').textContent = err.message; }
+});
 
 async function load(code) {
   if (!code) return;
@@ -56,10 +59,20 @@ async function load(code) {
 
 /* ---------- start ---------- */
 
-$('startNow').onclick = async () => {
-  if (ev.start_time && !confirm('This race already has a start time. Replace it?')) return;
-  ev = await api(`/events/${ev.code}/start`, { method: 'POST' });
-  $('startTime').textContent = fmtTime(ev.start_time);
+$('startNow').onclick = async e => {
+  if (ev.start_time && !await confirmDialog({
+    title: 'Replace the start time?',
+    body: `This race was already started at ${fmtTime(ev.start_time)}. `
+      + 'Replacing it re-times every runner against the new gun.',
+    confirm: 'Replace it',
+  })) return;
+  await withBusy(e.currentTarget, async () => {
+    try {
+      ev = await api(`/events/${ev.code}/start`, { method: 'POST' });
+      $('startTime').textContent = fmtTime(ev.start_time);
+      ok('Gun fired. Timing has started.');
+    } catch (err) { fail(err.message); }
+  });
 };
 
 $('openResults').onclick = () => open('/results.html#' + ev.code, '_blank');
@@ -90,11 +103,17 @@ function renderRaces() {
     });
     tb.querySelectorAll('button[data-race]').forEach(b => {
       b.onclick = async () => {
-        if (!confirm('Remove this race? Its checkpoints go with it.')) return;
+        const r = ev.races.find(x => String(x.id) === b.dataset.race);
+        if (!await confirmDialog({
+          title: `Remove the ${r ? r.name : ''} race?`,
+          body: 'Its checkpoints are deleted with it. Reads already taken are kept.',
+          confirm: 'Remove race',
+        })) return;
         try {
           await api('/races/' + b.dataset.race, { method: 'DELETE' });
+          ok('Race removed.');
           load(ev.code);
-        } catch (e) { alert(e.message); }
+        } catch (e) { fail(e.message); }
       };
     });
   }
@@ -110,23 +129,20 @@ function renderRaces() {
   }
 }
 
-$('rcAdd').onclick = async () => {
+$('rcAdd').onclick = e => withBusy(e.currentTarget, async () => {
   const name = $('rcName').value.trim();
-  if (!name) { alert('Give the race a name, like 10K.'); return; }
+  if (!name) { fail('Give the race a name, like 10K.'); $('rcName').focus(); return; }
   try {
-    await api(`/events/${ev.code}/races`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        distance_km: parseFloat($('rcKm').value) || 0,
-        sequence: parseInt($('rcSeq').value) || 0,
-      }),
-    });
+    await api(`/events/${ev.code}/races`, json('POST', {
+      name,
+      distance_km: parseFloat($('rcKm').value) || 0,
+      sequence: parseInt($('rcSeq').value) || 0,
+    }));
     $('rcName').value = '';
+    ok(`Added the ${name} race.`);
     load(ev.code);
-  } catch (e) { alert(e.message); }
-};
+  } catch (err) { fail(err.message); }
+});
 
 /* ---------- checkpoints ---------- */
 
@@ -150,30 +166,38 @@ function renderCheckpoints() {
   });
   tb.querySelectorAll('button[data-cp]').forEach(b => {
     b.onclick = async () => {
-      if (!confirm('Remove this checkpoint? Reads taken there stop counting.')) return;
-      await api('/checkpoints/' + b.dataset.cp, { method: 'DELETE' });
-      load(ev.code);
+      const c = ev.checkpoints.find(x => String(x.id) === b.dataset.cp);
+      if (!await confirmDialog({
+        title: `Remove “${c ? c.name : 'this checkpoint'}”?`,
+        body: 'Reads taken there stop counting towards splits and finishes. '
+          + 'The reads themselves are kept.',
+        confirm: 'Remove checkpoint',
+      })) return;
+      try {
+        await api('/checkpoints/' + b.dataset.cp, { method: 'DELETE' });
+        ok('Checkpoint removed.');
+        load(ev.code);
+      } catch (e) { fail(e.message); }
     };
   });
 }
 
-$('cpAdd').onclick = async () => {
+$('cpAdd').onclick = e => withBusy(e.currentTarget, async () => {
+  const name = $('cpName').value.trim();
+  if (!name) { fail('Give the checkpoint a name.'); $('cpName').focus(); return; }
   try {
-    await api(`/events/${ev.code}/checkpoints`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: $('cpName').value.trim(),
-        distance_km: parseFloat($('cpKm').value) || 0,
-        sequence: parseInt($('cpSeq').value) || 0,
-        kind: $('cpKind').value,
-        race_id: Number($('cpRace').value) || null,
-      }),
-    });
+    await api(`/events/${ev.code}/checkpoints`, json('POST', {
+      name,
+      distance_km: parseFloat($('cpKm').value) || 0,
+      sequence: parseInt($('cpSeq').value) || 0,
+      kind: $('cpKind').value,
+      race_id: Number($('cpRace').value) || null,
+    }));
     $('cpName').value = '';
+    ok(`Added “${name}”.`);
     load(ev.code);
-  } catch (e) { alert(e.message); }
-};
+  } catch (err) { fail(err.message); }
+});
 
 /* ---------- roster ---------- */
 
@@ -198,10 +222,11 @@ async function loadRoster() {
   renderPreview();
 }
 
-$('pasteAdd').onclick = async () => {
+$('pasteAdd').onclick = e => withBusy(e.currentTarget, async () => {
   const raceId = Number($('pasteRace').value) || null;
   if (!raceId && (ev.races || []).length > 1) {
-    alert('Choose which race these runners are entering.');
+    fail('Choose which race these runners are entering.');
+    $('pasteRace').focus();
     return;
   }
   const rows = $('paste').value.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -211,17 +236,18 @@ $('pasteAdd').onclick = async () => {
       category: category || null, gender: gender || null, race_id: raceId,
     };
   }).filter(r => r.bib);
-  if (!rows.length) return;
+  if (!rows.length) { fail('Nothing to add — paste one runner per line.'); return; }
   try {
-    await api(`/events/${ev.code}/participants`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rows),
-    });
+    const added = await api(`/events/${ev.code}/participants`, json('POST', rows));
     $('paste').value = '';
+    // Skipped rows are the interesting number: it means those bibs were
+    // already entered, which is usually a re-paste rather than a mistake.
+    const skipped = rows.length - added.length;
+    ok(`Added ${added.length} runner${added.length === 1 ? '' : 's'}.`
+      + (skipped ? ` ${skipped} already entered and skipped.` : ''));
     loadRoster();
-  } catch (e) { alert(e.message); }
-};
+  } catch (err) { fail(err.message); }
+});
 
 $('csv').onchange = async e => {
   const file = e.target.files[0];
@@ -229,9 +255,10 @@ $('csv').onchange = async e => {
   const fd = new FormData();
   fd.append('file', file);
   try {
-    await api(`/events/${ev.code}/participants/csv`, { method: 'POST', body: fd });
+    const added = await api(`/events/${ev.code}/participants/csv`, { method: 'POST', body: fd });
+    ok(`Imported ${added.length} runner${added.length === 1 ? '' : 's'} from ${file.name}.`);
     loadRoster();
-  } catch (err) { alert(err.message); }
+  } catch (err) { fail(err.message); }
   e.target.value = '';
 };
 
@@ -246,7 +273,7 @@ function raceDistance() {
   return (Number.isInteger(km) ? km : km.toFixed(1)) + 'K';
 }
 
-$('saveBrand').onclick = async () => {
+$('saveBrand').onclick = e => withBusy(e.currentTarget, async () => {
   $('brandMsg').textContent = '';
   try {
     if ($('artFile').files[0]) {
@@ -255,28 +282,31 @@ $('saveBrand').onclick = async () => {
       ev = await api(`/events/${ev.code}/artwork`, { method: 'POST', body: fd });
       $('artFile').value = '';
     }
-    ev = await api(`/events/${ev.code}/branding`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accent_color: $('accent').value,
-        tagline: $('tagline').value.trim(),
-        bib_style: $('bibStyle').value,
-      }),
-    });
-    $('brandMsg').textContent = 'Saved.';
+    ev = await api(`/events/${ev.code}/branding`, json('PATCH', {
+      accent_color: $('accent').value,
+      tagline: $('tagline').value.trim(),
+      bib_style: $('bibStyle').value,
+    }));
+    ok('Branding saved.');
     renderPreview();
-  } catch (e) { $('brandMsg').textContent = e.message; }
-};
+  } catch (err) {
+    $('brandMsg').textContent = err.message;
+    fail(err.message);
+  }
+});
 
 $('clearArt').onclick = async () => {
-  if (!ev.artwork_url) { $('brandMsg').textContent = 'No artwork to remove.'; return; }
-  if (!confirm('Remove the uploaded artwork from this race?')) return;
+  if (!ev.artwork_url) { fail('There is no artwork to remove.'); return; }
+  if (!await confirmDialog({
+    title: 'Remove the artwork?',
+    body: 'Bibs and certificates fall back to the plain layout until you upload a new image.',
+    confirm: 'Remove artwork',
+  })) return;
   try {
     ev = await api(`/events/${ev.code}/artwork`, { method: 'DELETE' });
-    $('brandMsg').textContent = 'Artwork removed.';
+    ok('Artwork removed.');
     renderPreview();
-  } catch (e) { $('brandMsg').textContent = e.message; }
+  } catch (e) { fail(e.message); }
 };
 
 // Show the change on a real bib rather than as a colour swatch -- the whole
@@ -324,8 +354,8 @@ async function bibCard(p) {
   return card;
 }
 
-$('printBibs').onclick = async () => {
-  if (!roster.length) { alert('Add runners first.'); return; }
+$('printBibs').onclick = e => withBusy(e.currentTarget, async () => {
+  if (!roster.length) { fail('Add runners to the start list first.'); return; }
   const wrap = $('bibs');
   wrap.innerHTML = '';
   try {
@@ -334,12 +364,12 @@ $('printBibs').onclick = async () => {
     // Without this the whole handler dies as an unhandled rejection and the
     // button just looks inert.
     wrap.innerHTML = '';
-    alert('Could not draw the bib QR codes: ' + err.message);
+    fail('Could not draw the bib QR codes: ' + err.message);
     return;
   }
   $('bibSheet').hidden = false;
   window.print();
-};
+});
 
 /* ---------- audit ---------- */
 
