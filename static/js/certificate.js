@@ -256,6 +256,13 @@ function fitCard() {
 }
 window.addEventListener('resize', fitCard);
 
+// The frame has no width until its panel is shown, and buildCard runs before
+// that. Watching the frame means the card is scaled the moment it has a size
+// to be scaled against, instead of rendering at full 1080px and being clipped.
+if (window.ResizeObserver) {
+  new ResizeObserver(fitCard).observe($('cardFrame'));
+}
+
 /* ---------- runner photo, client-side only ---------- */
 
 $('photo').onchange = e => {
@@ -347,10 +354,12 @@ $('save').onclick = e => withBusy(e.currentTarget, async () => {
 function show(r) {
   current = r;
   location.hash = `${ev.code}/${r.bib}`;
-  buildCard(r);
-  renderA4(r);            // still generated, but only the printer sees it
+  // Unhide first: the card frame has no measurable width while its panel is
+  // hidden, and the card has to be scaled against that width.
   $('finder').hidden = true;
   $('actions').hidden = false;
+  buildCard(r);
+  renderA4(r);            // still generated, but only the printer sees it
   window.scrollTo(0, 0);
 }
 
