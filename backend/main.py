@@ -563,10 +563,13 @@ def list_reads(code: str, limit: int = 500, db: Session = Depends(get_db)):
     rows = (db.query(Read).filter(Read.event_id == ev.id)
             .order_by(Read.server_received_at.desc()).limit(limit).all())
     names = {c.id: c.name for c in ev.checkpoints}
+    # No response_model here, so timestamps are normalised by hand.
     return [{
         "read_id": r.read_id, "bib": r.bib,
         "checkpoint": names.get(r.checkpoint_id, "?"),
-        "observed_at": r.observed_at, "source": r.source,
+        "observed_at": schemas.as_utc(r.observed_at), "source": r.source,
+        "device_time": schemas.as_utc(r.device_time),
+        "server_received_at": schemas.as_utc(r.server_received_at),
         "device_id": r.device_id, "clock_offset_ms": r.clock_offset_ms,
         "voided": r.voided,
     } for r in rows]
@@ -615,10 +618,12 @@ def results(code: str, db: Session = Depends(get_db)):
             ev, [c for c in ev.checkpoints if c.race_id is None], loose, reads))
 
     return {
-        "event": {"code": ev.code, "name": ev.name, "start_time": ev.start_time},
+        # Same here: hand-built dicts, so as_utc is applied at each timestamp.
+        "event": {"code": ev.code, "name": ev.name,
+                  "start_time": schemas.as_utc(ev.start_time)},
         "races": [
             {"id": r.id, "name": r.name, "distance_km": r.distance_km,
-             "start_time": r.start_time, "sequence": r.sequence}
+             "start_time": schemas.as_utc(r.start_time), "sequence": r.sequence}
             for r in ev.races
         ],
         "checkpoints": [

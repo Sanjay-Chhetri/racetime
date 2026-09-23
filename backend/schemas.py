@@ -1,14 +1,37 @@
-from datetime import datetime
-from typing import List, Literal, Optional
+from datetime import datetime, timezone
+from typing import Annotated, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Force a datetime to be UTC-aware.
+
+    SQLite does not persist tzinfo even when the column says
+    DateTime(timezone=True), so values read back are naive. Everything this app
+    stores is UTC, so a naive value *is* UTC and simply needs saying so.
+
+    This matters because a bare "2026-09-06T06:41:58" has no offset, and
+    JavaScript's `new Date()` parses that as **local** time -- which showed IST
+    users a gun time five and a half hours out. Normalising here fixes it for
+    every consumer at once, rather than patching each page.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+# Use in place of `datetime` on anything that leaves the API.
+UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
 
 
 class RaceIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
     distance_km: float = 0.0
     sequence: int = 0
-    start_time: Optional[datetime] = None
+    start_time: Optional[UtcDatetime] = None
 
 
 class RaceOut(RaceIn):
@@ -52,7 +75,7 @@ class ParticipantOut(ParticipantIn):
 class EventIn(BaseModel):
     code: str = Field(..., min_length=2, max_length=24)
     name: str
-    start_time: Optional[datetime] = None
+    start_time: Optional[UtcDatetime] = None
 
 
 class BrandingIn(BaseModel):
@@ -66,7 +89,7 @@ class EventOut(BaseModel):
     id: int
     code: str
     name: str
-    start_time: Optional[datetime]
+    start_time: Optional[UtcDatetime]
     artwork_url: Optional[str] = None
     accent_color: Optional[str] = None
     tagline: Optional[str] = None
@@ -88,8 +111,8 @@ class ReadIn(BaseModel):
     read_id: str
     checkpoint_id: int
     bib: str
-    observed_at: datetime
-    device_time: Optional[datetime] = None
+    observed_at: UtcDatetime
+    device_time: Optional[UtcDatetime] = None
     clock_offset_ms: int = 0
     source: str = "qr"
     device_id: Optional[str] = None
@@ -109,7 +132,7 @@ class SplitOut(BaseModel):
     checkpoint_id: int
     checkpoint: str
     distance_km: float
-    observed_at: datetime
+    observed_at: UtcDatetime
     elapsed_seconds: float
     pace_per_km: Optional[str] = None
 
@@ -127,5 +150,5 @@ class ResultOut(BaseModel):
 
 
 class TimeOut(BaseModel):
-    server_time: datetime
+    server_time: UtcDatetime
     epoch_ms: int
