@@ -27,11 +27,24 @@
 </section>
 
 <section class="panel noprint" id="actions" hidden>
-  <div class="row">
-    <button id="back">← Choose someone else</button>
-    <button id="print" class="primary">Print / save as PDF</button>
+  <div class="card-frame" id="cardFrame"></div>
+
+  <div class="row" style="margin-top:1rem">
+    <button id="save" class="primary">Save image</button>
+    <label for="photo" class="filebtn" id="photoLabel">Add your photo</label>
+    <input type="file" id="photo" accept="image/*" capture="user" hidden>
+    <button id="removePhoto" hidden>Remove photo</button>
   </div>
-  <p class="note" id="hint" style="margin:.6rem 0 0"></p>
+
+  <p class="note" id="hint" style="margin:.7rem 0 0">
+    Your photo stays on this device — it is drawn straight into the card and
+    never uploaded. Reload the page and you will need to pick it again.
+  </p>
+
+  <div class="row" style="margin-top:.9rem">
+    <button id="back">← Choose someone else</button>
+    <button id="print">Print A4 certificate</button>
+  </div>
 </section>
 
 <div id="sheet" hidden></div>

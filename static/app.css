@@ -870,3 +870,145 @@ figure.figure {
   .actor .go { display: none; }
   @page { size: A4 portrait; margin: 14mm; }
 }
+
+/* ---------- shareable finisher card ----------
+   1080 x 1350 (4:5) because this ends up in an Instagram story or a WhatsApp
+   thread, not in a frame. Laid out at those exact pixels and scaled down for
+   preview, so what html2canvas captures is what was on screen.
+
+   Designed for the no-photo case first: the photo is an addition, never a hole
+   that needs filling. */
+
+.card-frame {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
+  margin: 0 auto;
+  aspect-ratio: 1080 / 1350;
+  overflow: hidden;
+  border-radius: var(--r3);
+  box-shadow: var(--shadow-2);
+}
+
+.share-card {
+  position: absolute; top: 0; left: 0;
+  width: 1080px; height: 1350px;
+  transform-origin: top left;   /* scale set from JS against the frame width */
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  color: #fff;
+  /* Accent is the fallback ground when no artwork has been uploaded. */
+  background: var(--accent, #f2c500) var(--art, none) center / cover no-repeat;
+  font-family: Barlow, system-ui, sans-serif;
+}
+
+/* A solid scrim, not a gradient or a blur. The artwork could be a bright sky
+   or a dark forest, and the time has to read either way. */
+.share-card::before {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(9, 12, 16, .64);
+}
+.share-card > * { position: relative; z-index: 1; }
+
+/* The footer is pinned, so the hero block centres against the whole 1350
+   rather than against whatever is left above the footer. Without that, the
+   no-photo card reads top-heavy with a dead band above the QR. */
+.share-card .body {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  padding: 110px 80px 190px;
+}
+
+/* Runner photo. Cover-fit and centred so nothing is squashed. */
+.share-card .photo {
+  width: 280px; height: 280px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-bottom: 44px;
+  border: 6px solid var(--accent, #f2c500);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+  flex: none;
+}
+.share-card .photo img {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+  display: block;
+}
+
+/* Only ever rendered when the placing is genuinely worth showing. */
+.share-card .badge {
+  display: inline-block;
+  padding: 10px 28px; margin-bottom: 30px;
+  border-radius: 999px;
+  background: var(--accent, #f2c500);
+  color: #14181d;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 34px; line-height: 1;
+}
+
+.share-card .name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 76px; line-height: 1.02;
+  letter-spacing: .005em;
+  text-transform: uppercase;
+  max-width: 900px;
+  overflow-wrap: break-word;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .5);
+}
+
+/* The hero. Condensed display face, not monospace -- mono reads as terminal
+   output on something meant to be kept. */
+.share-card .time {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 250px; line-height: .92;
+  letter-spacing: -.02em;
+  margin: 4px 0 26px;
+  text-shadow: 0 4px 30px rgba(0, 0, 0, .45);
+}
+
+.share-card .event {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 46px; line-height: 1.12;
+  max-width: 880px;
+}
+.share-card .meta {
+  font-size: 34px; color: rgba(255, 255, 255, .8);
+  margin-top: 8px;
+}
+
+.share-card .foot {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 0 80px 76px;
+}
+.share-card .foot .qr {
+  background: #fff; padding: 8px; border-radius: 8px; line-height: 0;
+}
+.share-card .foot .qr canvas { width: 104px !important; height: 104px !important; }
+.share-card .foot .support {
+  text-align: right;
+  font-size: 32px; line-height: 1.45;
+  color: rgba(255, 255, 255, .85);
+}
+
+/* The A4 certificate is still generated, but only the printer sees it. */
+#sheet { display: none; }
+@media print {
+  #sheet { display: block; }
+}
+
+/* A file input that matches the buttons next to it. The native control cannot
+   be styled, so the label is the button and the input itself stays hidden. */
+.filebtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: .7rem .8rem; margin: 0;
+  font-size: 1rem; font-weight: 600; line-height: 1.45;
+  color: var(--paper); background: var(--ink-3);
+  border: 1px solid transparent; border-radius: var(--r1);
+  cursor: pointer; text-align: center;
+  transition: background var(--fast);
+}
+.filebtn:hover { background: var(--ink-4); }
+.filebtn:focus-within { outline: 2px solid var(--paint); outline-offset: 2px; }

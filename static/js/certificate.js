@@ -3,9 +3,15 @@
    a certificate can never claim a time the results page disagrees with.
 
    The entry point is the runner's name, not the bib. Anyone coming back for a
-   certificate weeks after the race has thrown the bib away. */
+   certificate weeks after the race has thrown the bib away.
+
+   The primary output is a 1080x1350 share card, because this ends up in an
+   Instagram story or a WhatsApp thread rather than a frame. The A4 sheet is
+   still generated for anyone who wants to print it, but only the printer
+   ever sees it. */
 import QRCode from '/vendor/qrcode.esm.js';
-import { esc, fail } from '/js/ui.js';
+import html2canvas from '/vendor/html2canvas.esm.js';
+import { esc, ok, fail, withBusy } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 
@@ -24,8 +30,13 @@ const ordinal = n => {
 };
 
 const MAX_ROWS = 40;
-let data = null;   // results payload for the selected race
-let ev = null;     // the event, with its branding
+const CARD_W = 1080;
+const CARD_H = 1350;
+
+let data = null;      // results payload for the selected race
+let ev = null;        // the event, with its branding
+let current = null;   // the runner being shown
+let photoUrl = null;  // a FileReader data URL, never sent anywhere
 
 /* ---------- race picker ---------- */
 
@@ -145,46 +156,227 @@ function renderList() {
   }
 }
 
-/* ---------- certificate ---------- */
+/* ---------- shared helpers ---------- */
 
-function show(r) {
-  location.hash = `${ev.code}/${r.bib}`;
-  render(r);
-  $('finder').hidden = true;
-  window.scrollTo(0, 0);
-}
-
-function backToFinder() {
-  $('sheet').hidden = true;
-  $('actions').hidden = true;
-  $('finder').hidden = false;
-  location.hash = ev ? ev.code : '';
-}
-
-async function render(r) {
+function raceDistance(r) {
   // Everything distance-related has to come from the runner's own race. On a
   // combined 5K/10K event the event's first finish line belongs to whichever
   // race happens to sort first, which is not necessarily theirs.
   const myRace = (data.races || []).find(x => x.id === r.race_id);
   const finishCp = data.checkpoints.find(
     c => c.kind === 'finish' && (r.race_id == null || c.race_id === r.race_id));
+  return (myRace && myRace.distance_km) || (finishCp && finishCp.distance_km) || 0;
+}
 
-  const km = (myRace && myRace.distance_km) || (finishCp && finishCp.distance_km) || 0;
-  const distance = km
-    ? (Number.isInteger(km) ? km : km.toFixed(1)) + ' KM'
-    : null;
+function avgPace(r, km) {
+  if (!km || !r.finish_seconds) return null;
+  const s = r.finish_seconds / km;
+  return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')} /km`;
+}
 
-  // Average pace over the full distance, which is the stat runners quote.
-  let pace = null;
-  if (km && r.finish_seconds) {
-    const secPerKm = r.finish_seconds / km;
-    pace = `${Math.floor(secPerKm / 60)}:${String(Math.round(secPerKm % 60)).padStart(2, '0')}/km`;
+function raceDate() {
+  // The gun time is the real date. The tagline is only a fallback, since an
+  // organiser may have written anything in it.
+  if (ev.start_time) {
+    return new Date(ev.start_time).toLocaleDateString(undefined, {
+      day: 'numeric', month: 'long', year: 'numeric',
+    });
   }
+  return ev.tagline || null;
+}
+
+/**
+ * A placing only earns space on something someone will actually share.
+ *
+ * Top three, and never in the bottom half of the field -- "3rd of 4" is
+ * technically a podium and obviously not an achievement. Everything else shows
+ * nothing at all. The results page still carries the full placing for anyone
+ * who wants to look it up.
+ */
+function rankBadge(r) {
+  const earned = (place, size) => place && place <= 3 && size && place <= size / 2;
+  if (earned(r.position, r.field_size)) return `${ordinal(r.position)} overall`;
+  if (earned(r.category_position, r.category_size) && r.category) {
+    return `${ordinal(r.category_position)} in ${r.category}`;
+  }
+  return null;
+}
+
+/* ---------- the share card ---------- */
+
+async function buildCard(r) {
+  const km = raceDistance(r);
+  const distance = km ? (Number.isInteger(km) ? km : km.toFixed(1)) + ' km' : null;
+  const badge = rankBadge(r);
+  const pace = avgPace(r, km);
+  const line2 = [distance, raceDate()].filter(Boolean).join(' · ');
+
+  const card = document.createElement('div');
+  card.className = 'share-card';
+  card.style.setProperty('--accent', ev.accent_color || '#f2c500');
+  if (ev.artwork_url) card.style.setProperty('--art', `url("${ev.artwork_url}")`);
+
+  card.innerHTML =
+    `<div class="body">
+       ${photoUrl ? `<div class="photo"><img src="${photoUrl}" alt=""></div>` : ''}
+       ${badge ? `<div class="badge">${esc(badge)}</div>` : ''}
+       <div class="name">${esc(r.name)}</div>
+       <div class="time">${dur(r.finish_seconds)}</div>
+       <div class="event">${esc(ev.name)}</div>
+       ${line2 ? `<div class="meta">${esc(line2)}</div>` : ''}
+     </div>
+     <div class="foot">
+       <div class="qr"></div>
+       <div class="support">Bib ${esc(r.bib)}${pace ? `<br>${esc(pace)}` : ''}</div>
+     </div>`;
+
+  const frame = $('cardFrame');
+  frame.innerHTML = '';
+  frame.appendChild(card);
+  fitCard();
+
+  try {
+    await QRCode.toCanvas(
+      card.querySelector('.qr').appendChild(document.createElement('canvas')),
+      `${location.origin}/results.html#${ev.code}`,
+      { width: 104, margin: 1 });
+  } catch {
+    // A missing QR should not cost the runner their card.
+    card.querySelector('.qr').remove();
+  }
+  return card;
+}
+
+/** Scale the 1080px card down to whatever width the frame actually has. */
+function fitCard() {
+  const frame = $('cardFrame');
+  const card = frame && frame.querySelector('.share-card');
+  if (!card || !frame.clientWidth) return;
+  card.style.transform = `scale(${frame.clientWidth / CARD_W})`;
+}
+window.addEventListener('resize', fitCard);
+
+/* ---------- runner photo, client-side only ---------- */
+
+$('photo').onchange = e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { fail('That file is not an image.'); return; }
+  const reader = new FileReader();
+  // FileReader only. The bytes never leave the browser, and there is
+  // deliberately no endpoint, column or table for them.
+  reader.onload = () => {
+    photoUrl = reader.result;
+    $('removePhoto').hidden = false;
+    $('photoLabel').textContent = 'Change photo';
+    if (current) buildCard(current);
+  };
+  reader.onerror = () => fail('Could not read that image.');
+  reader.readAsDataURL(file);
+  e.target.value = '';
+};
+
+$('removePhoto').onclick = () => {
+  photoUrl = null;
+  $('removePhoto').hidden = true;
+  $('photoLabel').textContent = 'Add your photo';
+  if (current) buildCard(current);
+};
+
+/* ---------- export ---------- */
+
+async function renderPng() {
+  const card = $('cardFrame').querySelector('.share-card');
+  if (!card) throw new Error('There is no card to save.');
+
+  // Without this the capture can start before the webfonts have loaded, and
+  // the type silently falls back to a default face.
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+  // Capture at true size, then put the preview scaling back.
+  const scaled = card.style.transform;
+  card.style.transform = 'none';
+  try {
+    const canvas = await html2canvas(card, {
+      width: CARD_W, height: CARD_H,
+      windowWidth: CARD_W, windowHeight: CARD_H,
+      scale: 1, backgroundColor: null, useCORS: true, logging: false,
+    });
+    return await new Promise(res => canvas.toBlob(res, 'image/png'));
+  } finally {
+    card.style.transform = scaled;
+  }
+}
+
+function fileName() {
+  return `${ev.code}-${current.bib}-${current.name}`
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+}
+
+async function saveImage() {
+  const blob = await renderPng();
+  if (!blob) throw new Error('Could not render the image.');
+  const file = new File([blob], fileName(), { type: 'image/png' });
+
+  // The share sheet is what people actually use on a phone; the download is
+  // the desktop path.
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: ev.name });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // they closed the sheet
+      // Anything else falls through to a download.
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  a.click();
+  URL.revokeObjectURL(url);
+  ok('Image saved.');
+}
+
+$('save').onclick = e => withBusy(e.currentTarget, async () => {
+  try { await saveImage(); } catch (err) { fail(err.message); }
+});
+
+/* ---------- open / close ---------- */
+
+function show(r) {
+  current = r;
+  location.hash = `${ev.code}/${r.bib}`;
+  buildCard(r);
+  renderA4(r);            // still generated, but only the printer sees it
+  $('finder').hidden = true;
+  $('actions').hidden = false;
+  window.scrollTo(0, 0);
+}
+
+function backToFinder() {
+  current = null;
+  photoUrl = null;
+  $('removePhoto').hidden = true;
+  $('photoLabel').textContent = 'Add your photo';
+  $('cardFrame').innerHTML = '';
+  $('sheet').hidden = true;
+  $('actions').hidden = true;
+  $('finder').hidden = false;
+  location.hash = ev ? ev.code : '';
+}
+
+/* ---------- A4 certificate, print only ---------- */
+
+async function renderA4(r) {
+  const km = raceDistance(r);
+  const finishCp = data.checkpoints.find(
+    c => c.kind === 'finish' && (r.race_id == null || c.race_id === r.race_id));
+  const distance = km ? (Number.isInteger(km) ? km : km.toFixed(1)) + ' KM' : null;
+  const pace = avgPace(r, km);
 
   const stats = [
     ordinal(r.position) && { k: `Overall${r.race ? ' · ' + r.race : ''}`, v: ordinal(r.position) },
-    // The category placing is the one most runners are proudest of, so it
-    // earns a slot of its own rather than just naming the category.
     r.category_position
       ? { k: r.category, v: `${ordinal(r.category_position)} of ${r.category_size}` }
       : (r.category && { k: 'Category', v: r.category }),
@@ -230,8 +422,6 @@ async function render(r) {
   sheet.innerHTML = '';
   sheet.appendChild(cert);
   sheet.hidden = false;
-  $('actions').hidden = false;
-  $('hint').textContent = 'Choose "Save as PDF" in the print dialog for a framing-quality copy.';
 
   try {
     await QRCode.toCanvas(
@@ -239,7 +429,6 @@ async function render(r) {
       `${location.origin}/results.html#${ev.code}`,
       { width: 62, margin: 1 });
   } catch {
-    // A missing QR should not cost the runner their certificate.
     cert.querySelector('.qr').remove();
   }
 }
