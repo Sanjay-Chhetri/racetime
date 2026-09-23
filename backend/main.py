@@ -378,6 +378,26 @@ def delete_race(race_id: int, db: Session = Depends(get_db)):
 # Checkpoints
 # --------------------------------------------------------------------------
 
+def _assert_sequence_free(db: Session, ev: Event, race_id, sequence: int,
+                          exclude_id: int | None = None) -> None:
+    """Refuse a sequence already taken by another checkpoint in the same race.
+
+    Sequence decides the order of split columns in the results, so two
+    checkpoints sharing one is ambiguous. It happens to sort correctly when
+    distance breaks the tie, which is exactly what makes it a trap: it looks
+    fine until a race where it does not.
+    """
+    clash = next(
+        (c for c in ev.checkpoints
+         if c.race_id == race_id and c.sequence == sequence and c.id != exclude_id),
+        None)
+    if clash:
+        raise HTTPException(
+            409,
+            f"Sequence {sequence} is already used by '{clash.name}' in this race. "
+            f"Give this checkpoint a different order number.")
+
+
 @app.post("/api/events/{code}/checkpoints", response_model=schemas.CheckpointOut, status_code=201)
 def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
@@ -385,8 +405,35 @@ def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depen
         raise HTTPException(422, "kind must be start, split or finish")
     fields = payload.model_dump()
     fields["race_id"] = _resolve_race_id(ev, fields.get("race_id"))
+    _assert_sequence_free(db, ev, fields["race_id"], fields["sequence"])
     cp = Checkpoint(event_id=ev.id, **fields)
     db.add(cp)
+    db.commit()
+    db.refresh(cp)
+    return cp
+
+
+@app.patch("/api/checkpoints/{cp_id}", response_model=schemas.CheckpointOut)
+def update_checkpoint(cp_id: int, payload: schemas.CheckpointUpdate,
+                      db: Session = Depends(get_db)):
+    cp = db.get(Checkpoint, cp_id)
+    if not cp:
+        raise HTTPException(404, f"No checkpoint with id {cp_id}")
+    ev = db.get(Event, cp.event_id)
+    fields = payload.model_dump(exclude_unset=True)
+
+    # Validate against where the checkpoint will end up, which may be a
+    # different race than the one it is in now.
+    race_id = fields.get("race_id", cp.race_id)
+    if "race_id" in fields:
+        race_id = _resolve_race_id(ev, fields["race_id"])
+        fields["race_id"] = race_id
+    sequence = fields.get("sequence", cp.sequence)
+    if "sequence" in fields or "race_id" in fields:
+        _assert_sequence_free(db, ev, race_id, sequence, exclude_id=cp.id)
+
+    for field, value in fields.items():
+        setattr(cp, field, value)
     db.commit()
     db.refresh(cp)
     return cp

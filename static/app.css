@@ -162,6 +162,20 @@ tr.finished td.pos { color: var(--paint); font-weight: 600; }
 
 .note { font-size: .85rem; color: var(--muted); }
 
+/* A validation message that belongs to a form, shown next to the fields that
+   caused it rather than as a toast that floats away from the problem. */
+.fieldErr {
+  display: flex; align-items: flex-start; gap: var(--s2);
+  margin: var(--s3) 0 0; padding: var(--s3);
+  font-size: .88rem; color: #ffc9c1;
+  background: rgba(221, 75, 57, .12);
+  border-left: 3px solid var(--stop);
+  border-radius: 0 var(--r1) var(--r1) 0;
+  max-width: none;
+}
+.fieldErr::before { content: '!'; font-weight: 700; color: var(--stop); }
+.fieldErr[hidden] { display: none; }
+
 .empty { padding: var(--s6) var(--s4); text-align: center; color: var(--muted); }
 .empty .t { font-weight: 600; color: var(--paper); margin-bottom: var(--s1); }
 .empty .h { font-size: .85rem; }

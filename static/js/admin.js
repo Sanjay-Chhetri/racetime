@@ -182,9 +182,18 @@ function renderCheckpoints() {
   });
 }
 
+// Validation belongs next to the fields that caused it, not in a toast that
+// floats away from the form you are still looking at.
+function cpError(msg) {
+  const el = $('cpErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
 $('cpAdd').onclick = e => withBusy(e.currentTarget, async () => {
+  cpError('');
   const name = $('cpName').value.trim();
-  if (!name) { fail('Give the checkpoint a name.'); $('cpName').focus(); return; }
+  if (!name) { cpError('Give the checkpoint a name.'); $('cpName').focus(); return; }
   try {
     await api(`/events/${ev.code}/checkpoints`, json('POST', {
       name,
@@ -196,8 +205,18 @@ $('cpAdd').onclick = e => withBusy(e.currentTarget, async () => {
     $('cpName').value = '';
     ok(`Added “${name}”.`);
     load(ev.code);
-  } catch (err) { fail(err.message); }
+  } catch (err) {
+    cpError(err.message);
+    $('cpSeq').focus();
+    $('cpSeq').select();
+  }
 });
+
+// Clear the message as soon as the operator changes the thing it complained
+// about, so a stale error never sits under a form that is now valid.
+for (const id of ['cpSeq', 'cpRace', 'cpName']) {
+  $(id).addEventListener('input', () => cpError(''));
+}
 
 /* ---------- roster ---------- */
 

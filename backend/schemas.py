@@ -56,6 +56,16 @@ class CheckpointOut(CheckpointIn):
         from_attributes = True
 
 
+class CheckpointUpdate(BaseModel):
+    """Every field optional, so a caller can move one checkpoint's sequence
+    without restating the rest of it."""
+    name: Optional[str] = None
+    distance_km: Optional[float] = None
+    sequence: Optional[int] = None
+    kind: Optional[Literal["start", "split", "finish"]] = None
+    race_id: Optional[int] = None
+
+
 class ParticipantIn(BaseModel):
     bib: str
     name: str
