@@ -1,0 +1,9 @@
+{
+  "name": "RaceTime Checkpoint",
+  "short_name": "Checkpoint",
+  "start_url": "/checkpoint.html",
+  "display": "standalone",
+  "background_color": "#14181d",
+  "theme_color": "#14181d",
+  "orientation": "portrait"
+}

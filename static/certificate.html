@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finisher certificate · RaceTime</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div class="masthead noprint">
+  <h1>Finisher certificate</h1>
+  <span class="where"><a href="/">home</a></span>
+</div>
+
+<section class="panel noprint" id="finder">
+  <label for="event">Race</label>
+  <select id="event"><option value="">Loading races…</option></select>
+
+  <label for="find" style="margin-top:.9rem">Your name or bib number</label>
+  <input id="find" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+
+  <p class="note" id="count" style="margin:.7rem 0 0"></p>
+  <ul class="finder" id="list"></ul>
+  <p class="note" id="err" style="color:var(--stop)"></p>
+</section>
+
+<section class="panel noprint" id="actions" hidden>
+  <div class="row">
+    <button id="back">← Choose someone else</button>
+    <button id="print" class="primary">Print / save as PDF</button>
+  </div>
+  <p class="note" id="hint" style="margin:.6rem 0 0"></p>
+</section>
+
+<div id="sheet" hidden></div>
+
+<script type="module" src="/js/certificate.js"></script>
+</body>
+</html>

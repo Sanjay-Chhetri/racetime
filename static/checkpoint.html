@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14181d">
+<link rel="manifest" href="/manifest.json">
+<title>Checkpoint · RaceTime</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="full">
+
+<!-- Setup: pick the event and checkpoint, then measure this phone's clock. -->
+<section id="setup" style="padding:1rem;max-width:480px;margin:0 auto">
+  <div class="masthead"><h1>Checkpoint</h1></div>
+  <p>Set this phone up once at your post. It keeps working without a signal.</p>
+
+  <label for="code">Event code</label>
+  <input id="code" placeholder="siliguri10k" autocapitalize="none" autocomplete="off">
+  <button id="load" class="primary" style="margin-top:.6rem">Find event</button>
+
+  <div id="pick" hidden>
+    <label for="cp">Your checkpoint</label>
+    <select id="cp"></select>
+    <button id="go" class="primary wide" style="margin-top:1rem">Start scanning</button>
+    <p class="note" id="clockNote" style="margin-top:.8rem"></p>
+  </div>
+  <p class="note" id="setupErr" style="color:var(--stop)"></p>
+</section>
+
+<!-- Capture -->
+<section id="capture" class="capture" hidden>
+  <div class="capture-bar">
+    <div class="cp" id="cpName">—</div>
+    <span class="pill" id="status">starting</span>
+  </div>
+
+  <div id="reader"></div>
+
+  <div class="capture-foot">
+    <div class="row">
+      <input id="manual" class="num" inputmode="numeric" placeholder="Type bib" autocomplete="off">
+      <button id="manualAdd" class="narrow">Add</button>
+    </div>
+    <ul class="recent" id="recent"></ul>
+  </div>
+</section>
+
+<div class="flash" id="flash" hidden>
+  <div class="bib" id="flashBib"></div>
+  <div class="who" id="flashWho"></div>
+  <div class="what" id="flashWhat"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script type="module" src="/js/checkpoint.js"></script>
+</body>
+</html>

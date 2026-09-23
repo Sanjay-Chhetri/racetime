@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Race admin · RaceTime</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div class="masthead noprint">
+  <h1>Race admin</h1>
+  <span class="where"><a href="/">home</a></span>
+</div>
+
+<section class="panel noprint" id="chooser">
+  <div class="row">
+    <div>
+      <label for="code">Event code</label>
+      <input id="code" placeholder="siliguri10k" autocapitalize="none">
+    </div>
+    <button id="open" class="narrow">Open</button>
+  </div>
+  <details style="margin-top:.8rem">
+    <summary class="note">Create a new event</summary>
+    <label for="newName">Race name</label>
+    <input id="newName" placeholder="Siliguri Hill Run 10K">
+    <label for="newCode">Short code used in links</label>
+    <input id="newCode" placeholder="siliguri10k" autocapitalize="none">
+    <button id="create" class="primary" style="margin-top:.6rem">Create race</button>
+  </details>
+  <p class="note" id="err" style="color:var(--stop)"></p>
+</section>
+
+<div id="event" hidden>
+  <section class="panel noprint">
+    <h2 id="evName" style="margin-top:0"></h2>
+    <p class="note">Gun time: <span id="startTime" class="num">not started</span></p>
+    <div class="row">
+      <button id="startNow" class="primary">Start race now</button>
+      <button id="openResults">Live results</button>
+    </div>
+  </section>
+
+  <section class="panel noprint">
+    <h2 style="margin-top:0">Races</h2>
+    <p class="note">One event can hold several distances &mdash; a 5K and a 10K on the same
+    morning. Each race is ranked on its own, so nobody is placed against a field that ran
+    a different distance. Leave the start time blank to use the event gun; set it for a
+    staggered start.</p>
+    <table><tbody id="raceList"></tbody></table>
+    <div class="row" style="margin-top:.8rem">
+      <div><label for="rcName">Name</label><input id="rcName" placeholder="10K"></div>
+      <div class="narrow"><label for="rcKm">km</label><input id="rcKm" class="num" value="10"></div>
+      <div class="narrow"><label for="rcSeq">Order</label><input id="rcSeq" class="num" value="1"></div>
+      <button id="rcAdd" class="narrow">Add</button>
+    </div>
+  </section>
+
+  <section class="panel noprint">
+    <h2 style="margin-top:0">Checkpoints</h2>
+    <p class="note">Sequence orders the columns in results. Each race needs exactly one finish.
+    Checkpoint names must be unique across the whole event, so name them
+    <code>5K Finish</code> and <code>10K Finish</code> rather than both <code>Finish</code>.</p>
+    <table><tbody id="cpList"></tbody></table>
+    <div class="row" style="margin-top:.8rem">
+      <div><label for="cpName">Name</label><input id="cpName" placeholder="9 km turn"></div>
+      <div><label for="cpRace">Race</label><select id="cpRace"></select></div>
+      <div class="narrow"><label for="cpKm">km</label><input id="cpKm" class="num" value="9"></div>
+      <div class="narrow"><label for="cpSeq">Order</label><input id="cpSeq" class="num" value="1"></div>
+      <div class="narrow"><label for="cpKind">Type</label>
+        <select id="cpKind">
+          <option value="split">split</option>
+          <option value="finish">finish</option>
+          <option value="start">start</option>
+        </select>
+      </div>
+      <button id="cpAdd" class="narrow">Add</button>
+    </div>
+  </section>
+
+  <section class="panel noprint">
+    <h2 style="margin-top:0">Race artwork</h2>
+    <p class="note">A wide banner image works best &mdash; it runs across the top of every bib and fills the finisher certificate. PNG, JPEG or WebP, up to 5&nbsp;MB.</p>
+    <div class="row">
+      <div>
+        <label for="artFile">Artwork</label>
+        <input type="file" id="artFile" accept="image/png,image/jpeg,image/webp">
+      </div>
+      <div class="narrow">
+        <label for="accent">Accent</label>
+        <input type="color" id="accent" value="#f2c500">
+      </div>
+      <div>
+        <label for="bibStyle">Bib layout</label>
+        <select id="bibStyle">
+          <option value="full">Artwork across the whole bib</option>
+          <option value="band">Artwork as a top band only</option>
+        </select>
+      </div>
+    </div>
+    <p class="note">Full artwork looks best and is what runners keep. The band
+    uses far less ink and stays readable on cheap paper &mdash; print one of each
+    before you commit to a few hundred.</p>
+    <label for="tagline" style="margin-top:.6rem">Line under the race name</label>
+    <input id="tagline" placeholder="12 October 2026 · Siliguri" maxlength="160">
+    <div class="row" style="margin-top:.6rem">
+      <button id="saveBrand" class="primary">Save branding</button>
+      <button id="clearArt">Remove artwork</button>
+    </div>
+    <p class="note" id="brandMsg" style="margin-top:.6rem"></p>
+    <div id="artPreview" hidden style="margin-top:.8rem">
+      <div class="bibsheet" style="max-width:420px"><div id="previewCard"></div></div>
+    </div>
+  </section>
+
+  <section class="panel noprint">
+    <h2 style="margin-top:0">Runners</h2>
+    <p class="note">Paste one runner per line as <code>bib, name, category, gender</code>,
+    or upload a CSV with those column headers. A CSV may also carry a <code>race</code>
+    column naming the race, which lets one file cover every distance.</p>
+    <textarea id="paste" rows="5" placeholder="1, Tenzing Bhutia, Open, Men&#10;2, Anita Rai, Veteran, Women"></textarea>
+    <div class="row" style="margin-top:.6rem">
+      <div><label for="pasteRace">Add these runners to</label><select id="pasteRace"></select></div>
+    </div>
+    <div class="row" style="margin-top:.6rem">
+      <button id="pasteAdd" class="primary">Add runners</button>
+      <input type="file" id="csv" accept=".csv">
+    </div>
+    <p class="note" id="rosterCount" style="margin-top:.8rem"></p>
+    <div class="row">
+      <button id="printBibs">Print bibs with QR codes</button>
+    </div>
+  </section>
+
+  <section class="panel noprint">
+    <h2 style="margin-top:0">Raw reads</h2>
+    <p class="note">Every sighting the system has received, newest first. Voiding a read removes it from timing without deleting it.</p>
+    <button id="refreshReads">Reload</button>
+    <table style="margin-top:.6rem"><thead><tr>
+      <th>Bib</th><th>Checkpoint</th><th>Time</th><th>Via</th><th>Drift</th><th></th>
+    </tr></thead><tbody id="readList"></tbody></table>
+  </section>
+
+  <section id="bibSheet" hidden>
+    <div class="bibsheet" id="bibs"></div>
+  </section>
+</div>
+
+<script type="module" src="/js/admin.js"></script>
+</body>
+</html>

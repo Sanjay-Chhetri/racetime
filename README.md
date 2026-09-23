@@ -1,0 +1,391 @@
+# RaceTime
+
+**Chip-free race timing that runs on the phones you already have.**
+
+Volunteers scan bib QR codes at each checkpoint. The public gets a live
+leaderboard with splits, category rankings and printable finisher certificates.
+When you can afford RFID mats later, they plug into the same pipeline without a
+rewrite.
+
+Built for small and mid-size road races — the kind where a timing company quotes
+more than the entry fees bring in.
+
+```
+Organiser  ──▶  Race admin      set up races, start list, print branded bibs
+Volunteer  ──▶  Checkpoint app  scan bibs, works with no signal
+Runner     ──▶  Live results    search by name, splits, category placing
+Runner     ──▶  Certificate     printable keepsake with their finish time
+```
+
+---
+
+## Contents
+
+- [What you get](#what-you-get)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Trying it on a phone](#trying-it-on-a-phone)
+- [Setting up a real race](#setting-up-a-real-race)
+- [One event, several distances](#one-event-several-distances)
+- [Bibs and artwork](#bibs-and-artwork)
+- [Finisher certificates](#finisher-certificates)
+- [How the timing stays trustworthy](#how-the-timing-stays-trustworthy)
+- [Project layout](#project-layout)
+- [API](#api)
+- [Deploying](#deploying)
+- [Race-day runbook](#race-day-runbook)
+- [Security](#security)
+- [Not built yet](#not-built-yet)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## What you get
+
+| | |
+|---|---|
+| **Offline capture** | Scans queue on the phone and sync when signal returns. A dead zone costs you nothing. |
+| **Clock correction** | Volunteer phones are routinely seconds off. Each device measures itself against the server and corrects every scan. |
+| **Append-only audit** | Every sighting is kept exactly as it arrived. Bad reads are voided, never deleted. |
+| **Multiple distances** | One event can hold a 5K and a 10K, each with its own course, gun and rankings. |
+| **Category rankings** | Overall, category and gender placings — *"1st of 19 in Open"* — each computed inside its own race. |
+| **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
+| **Finisher certificates** | Generated from real results after the race. Runners search by name, not bib. |
+| **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
+
+---
+
+## Requirements
+
+- **Python 3.10+** (developed on 3.12)
+- A modern browser
+- Nothing else — SQLite is the default database and needs no setup
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/Sanjay-Chhetri/racetime.git
+cd racetime
+
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS / Linux:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+python seed.py                 # optional: a 40-runner demo race
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open <http://localhost:8000/>.
+
+If you seeded, go straight to
+[`/results.html#siliguri10k`](http://localhost:8000/results.html#siliguri10k) —
+40 runners, three checkpoints, two DNFs, and a few deliberate messes to show how
+they resolve.
+
+> **Database migrations run automatically** when the server starts, so an
+> existing `racetime.db` is upgraded in place. You never run a migration command.
+
+### Windows note
+
+`python3` may not exist on Windows — use `python`. If activation is blocked by
+execution policy, either run the interpreter directly
+(`.venv\Scripts\python.exe -m uvicorn ...`) or allow scripts for the session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+---
+
+## Trying it on a phone
+
+The checkpoint app needs a camera, and **browsers only allow camera access over
+HTTPS or on `localhost`**. Plain `http://192.168.x.x` will load the page but the
+camera will refuse to start.
+
+Two ways round it:
+
+```bash
+# 1. A tunnel — quickest for testing
+cloudflared tunnel --url http://localhost:8000
+
+# 2. Deploy somewhere with a certificate (see Deploying below)
+```
+
+Manual bib entry works over plain HTTP, so you can test the rest of the flow on a
+phone at `http://<your-laptop-ip>:8000/checkpoint.html` without a tunnel.
+
+---
+
+## Setting up a real race
+
+1. **Create the event** in Race admin (`/admin.html`). The short code you choose
+   appears in every public link.
+2. **Add a race per distance.** Even a single-distance event needs one — call it
+   `10K`. Give it the distance in km.
+3. **Add checkpoints** to each race. Every race needs exactly one marked
+   `finish`. Splits are optional but make the results far more interesting.
+4. **Load the start list** — paste `bib, name, category, gender` lines or upload
+   a CSV. Check the per-race entry counts afterwards; a whole distance imported
+   against the wrong race is easy to catch there and painful to catch later.
+5. **Upload artwork** and print bibs. Print *one* first and look at it.
+6. **On the morning**, open the checkpoint app on each volunteer phone while you
+   still have wifi, pick the checkpoint, and let the clock sync finish.
+7. **Fire the gun** from Race admin as the race starts.
+
+### CSV format
+
+```csv
+bib,name,category,gender,race
+1,Tenzing Bhutia,Open,Men,10K
+2,Anita Rai,Veteran,Women,10K
+501,Sharon Thapa,Open,Women,5K
+```
+
+Only `bib` is required. The `race` column is matched against your race names, so
+one file can cover every distance. Re-importing is safe — bibs already present
+are skipped.
+
+---
+
+## One event, several distances
+
+An event holds any number of **races**. "Kalimpong 5K & 10K" is one event with a
+5K and a 10K: separate courses, separate finish lines, separate rankings, and
+optionally separate guns for a staggered start. **Nobody is ever placed against a
+field that ran a different distance.**
+
+Every finisher gets three placings — overall, within their category, and within
+their gender — each computed inside their own race and each carrying its field
+size, so results can say *"1st of 19 in Open"* rather than just a number.
+
+Two naming rules follow from how the app works:
+
+- **Checkpoint names are unique per event**, not per race. Volunteers pick from
+  one flat list on a phone, so two checkpoints called "Finish" would be a real
+  hazard. Name them `5K Finish` and `10K Finish`.
+- **Bibs are unique per event**, across all races, because a scan carries a bib
+  and nothing else. Separate number series per race (`1–199`, `500+`) are fine.
+
+---
+
+## Bibs and artwork
+
+Upload race artwork in Race admin. **PNG, JPEG or WebP, 5 MB maximum.** SVG is
+refused on purpose — uploads are served from your own origin and an SVG can carry
+script.
+
+Two bib layouts, switchable per event:
+
+| Layout | Looks | Costs |
+|---|---|---|
+| **Full** (default) | Artwork edge to edge, text reversed out over a dark scrim. What runners keep. | Heavy on ink; can bleed on cheap paper |
+| **Band** | Artwork in a strip at the top, number on bare paper. | Cheapest, most legible at distance |
+
+Print one of each before committing to a few hundred. In both layouts **the QR
+sits on a solid white tile** — a code printed over artwork is the usual reason a
+scan fails.
+
+Output is 180 × 132 mm per bib, two per A4 portrait sheet.
+
+### Artwork guidance
+
+One image feeds both the bib and the A4 certificate, each cropped from the
+centre. So:
+
+- **3000 × 2000 px (3:2)** is the sweet spot. JPEG for photographs, PNG for flat
+  illustration.
+- Keep the focal point **centred**; nothing important near the edges.
+- Nothing important along the **bottom** — that is where the scrim is heaviest.
+- **No text in the image.** The app overlays the race name itself.
+
+---
+
+## Finisher certificates
+
+Generated after the race from the real results, so they carry the finish time,
+placings and splits — things a bib printed the night before cannot.
+
+Runners find themselves at `/certificate.html` **by name**, not by bib. Anyone
+coming back a few weeks later has long since binned the bib. One search box
+matches either. Non-finishers stay listed with the reason (`did not finish`,
+`still running`), so searching your own name never returns an unexplained blank.
+
+The certificate prints as a single A4 page; "Save as PDF" gives a framing-quality
+copy.
+
+---
+
+## How the timing stays trustworthy
+
+**Clock correction.** Volunteer phones are routinely several seconds off, and
+that error lands straight in the split times where nothing can detect it later.
+At checkpoint setup each phone measures itself against `/api/time` and corrects
+every scan by the difference. The raw device time **and** the offset applied are
+both stored, so a disputed result can be audited.
+
+**Idempotent ingest.** `read_id` is a UUID generated on the device at the moment
+of the scan, and it is the primary key. A phone coming back from a dead zone can
+resend its whole queue as often as it likes. Reads leave the local queue only
+after the server confirms, so an ambiguous failure always resolves towards
+resending rather than losing data.
+
+**Results are derived, never stored.** Splits and rankings are recomputed from
+reads on every request. Void a bad read or fix a clock offset and the leaderboard
+corrects itself on the next refresh — no migration, no repair job.
+
+**One ingest shape for every source.** A QR scan, a typed bib and an RFID tag
+read all post the same payload to the same endpoint. That is why RFID support is
+one extra file and no changes anywhere else:
+
+```bash
+python tools/rfid_bridge.py --event siliguri10k --checkpoint 2 --simulate
+```
+
+---
+
+## Project layout
+
+```
+backend/
+  main.py       FastAPI app, all 24 endpoints, automatic schema migrations
+  models.py     Five tables. `reads` is append-only
+  schemas.py    Pydantic request/response models
+  timing.py     Splits and rankings, computed on demand and never stored
+  db.py         SQLite by default; DATABASE_URL switches to Postgres
+static/
+  index.html        Home
+  admin.html        Race admin — races, checkpoints, start list, artwork, bibs
+  checkpoint.html   Volunteer capture screen
+  results.html      Public leaderboard
+  certificate.html  Finisher certificate
+  js/store.js       Offline queue (IndexedDB) and clock sync
+  vendor/           Vendored QR library, so race day needs no CDN
+tools/
+  rfid_bridge.py    The upgrade path to RFID mats
+docs/
+  REQUIREMENTS.md   Full functional specification
+seed.py             40-runner demo race
+```
+
+---
+
+## API
+
+24 endpoints. Interactive docs at `/docs` while the server runs. The ones you
+will actually touch:
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/time` | Clock reference for capture devices |
+| `POST` | `/api/events` | Create an event |
+| `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
+| `POST` | `/api/events/{code}/races` | One per distance |
+| `POST` | `/api/events/{code}/checkpoints` | One per timing point |
+| `POST` | `/api/events/{code}/participants` | JSON list |
+| `POST` | `/api/events/{code}/participants/csv` | `bib, name, category, gender, race` |
+| `POST` | `/api/events/{code}/artwork` | Multipart image upload |
+| `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent |
+| `GET` | `/api/events/{code}/reads` | Raw audit log |
+| `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
+| `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
+
+Full table in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md#6-api-reference).
+
+---
+
+## Deploying
+
+Cheapest setup that holds up:
+
+- **API** on Railway or Fly.io — set `DATABASE_URL` to a Postgres instance and
+  nothing in the code changes.
+- **Postgres** on Supabase's free tier.
+- **HTTPS is not optional** — phone cameras will not start without it. Any of the
+  above gives you a certificate automatically.
+
+Roughly ₹0–1,500 a month until you have real traffic.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./racetime.db` | Point at Postgres for production |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+
+---
+
+## Race-day runbook
+
+Learned the hard way by everyone who has ever timed a race:
+
+1. Create the event, then a race per distance, then that race's checkpoints.
+   Give every race exactly one finish, named distinctly (`5K Finish`).
+2. Load the start list and check the per-race entry counts in Race admin.
+3. Print bibs the night before, after printing **one** to check it on your actual
+   printer. Print ten spares with high numbers for morning registrations.
+4. Open the checkpoint app on each volunteer phone **while you still have wifi**,
+   pick the checkpoint, and let it finish clock sync. It caches the start list,
+   so it works from then on with no signal.
+5. Tell volunteers to add it to their home screen and leave the screen on.
+6. **Fire the gun before or as the race starts, never afterwards.** Reads that
+   predate the start time produce negative elapsed times, which display as
+   `0:00:00` rather than raising an error. For a staggered start, set each race's
+   own start time instead of the event gun.
+7. Have a backup at the finish: a phone recording video of the finish line with a
+   running clock in shot. Bibs get lost, cameras fail, someone crosses carrying a
+   child. Reconciling from video afterwards takes twenty minutes; having no record
+   takes your race's credibility.
+8. Do not publish results until you have looked at the raw reads screen. Look for
+   drift warnings, unknown bibs, and anyone showing a 9 km split but no finish.
+
+---
+
+## Security
+
+**Every endpoint is currently unauthenticated.** Anyone who can reach the server
+can create events, alter start lists and void reads. That is fine on a trusted
+LAN and **not fine on the public internet** — put authentication in front of
+`/admin.html` and the write endpoints before exposing it.
+
+What is handled:
+
+- Uploads are validated by **magic bytes**, not the `Content-Type` header, which
+  any client can forge. SVG is refused to avoid stored XSS.
+- Stored filenames are generated server-side; a client-supplied filename is never
+  used, closing the path-traversal hole.
+- Runner and event names are HTML-escaped everywhere they are rendered.
+- Results and certificates are **public by design** — anyone with the event code
+  can look up any runner.
+
+---
+
+## Not built yet
+
+Authentication, online registration, payments, race photography, SMS
+notifications, and year-grouping of events. None of them affect the data model,
+so all are additive.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| Camera will not start on a phone | Not on HTTPS or `localhost`. Use a tunnel or deploy. |
+| All finish times show `0:00:00` | The gun was fired *after* the reads arrived. Elapsed went negative and clamps to zero. |
+| A runner is missing from results | They are probably entered against the wrong race — check per-race counts in Race admin. |
+| "Print bibs" does nothing | Open the browser console. The QR library is vendored in `static/vendor/`; if those files are missing the handler aborts. |
+| `no such column` on startup | You are running an old `racetime.db` against newer code without starting through `backend.main`. Migrations run at import. |
+| Two checkpoints both named "Finish" rejected | Names are unique per event. Use `5K Finish` and `10K Finish`. |
+
+---
+
+## Licence
+
+No licence file yet — all rights reserved by default. Add one before inviting
+contributions.

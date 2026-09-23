@@ -1,0 +1,34 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# The race database. Recreate it with `python seed.py`; it holds live event
+# data and is never something you want in version control.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Artwork organisers upload at runtime. The folder ships, its contents do not.
+static/uploads/*
+!static/uploads/.gitkeep
+
+# Local editor / agent settings
+.claude/
+.vscode/
+.idea/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Left over from a shell that did not understand brace expansion
+{backend,static/

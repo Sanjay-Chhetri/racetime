@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<title>Results · RaceTime</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div class="masthead">
+  <h1 id="title">Results</h1>
+  <span class="where clock" id="clock"></span>
+</div>
+
+<div class="row" style="margin-bottom:.7rem">
+  <input id="find" placeholder="Find a runner by name or bib" autocomplete="off">
+</div>
+
+<div class="filters" id="filters" hidden>
+  <div class="chips" id="raceChips" role="group" aria-label="Filter by race" hidden></div>
+  <div class="chips" id="statusChips" role="group" aria-label="Filter by status"></div>
+  <div class="chips" id="catChips" role="group" aria-label="Filter by category"></div>
+</div>
+
+<div class="tally" id="tally"></div>
+
+<table>
+  <thead><tr id="head">
+    <th class="num sortable" data-sort="position">#</th>
+    <th class="num sortable" data-sort="bib">Bib</th>
+    <th class="sortable" data-sort="name">Runner</th>
+    <th class="num sortable" data-sort="time">Finish</th>
+    <th>Progress</th>
+  </tr></thead>
+  <tbody id="rows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+</table>
+
+<p class="note" style="margin-top:1.5rem">
+  Tap any runner for their splits. Times refresh automatically.
+</p>
+
+<script type="module" src="/js/results.js"></script>
+</body>
+</html>
