@@ -118,19 +118,50 @@
 
   <section class="panel noprint">
     <h2 style="margin-top:0">Runners</h2>
-    <p class="note">Paste one runner per line as <code>bib, name, category, gender</code>,
-    or upload a CSV with those column headers. A CSV may also carry a <code>race</code>
-    column naming the race, which lets one file cover every distance.</p>
-    <textarea id="paste" rows="5" placeholder="1, Tenzing Bhutia, Open, Men&#10;2, Anita Rai, Veteran, Women"></textarea>
-    <div class="row" style="margin-top:.6rem">
-      <div><label for="pasteRace">Add these runners to</label><select id="pasteRace"></select></div>
+
+    <!-- One field per value. The old comma-separated box put whole names into
+         the bib column whenever someone typed "1. Name" instead of "1, Name". -->
+    <div class="row addrunner">
+      <div class="narrow"><label for="pBib">Bib</label>
+        <input id="pBib" class="num" inputmode="numeric" placeholder="1"></div>
+      <div><label for="pName">Name</label>
+        <input id="pName" placeholder="Tenzing Bhutia" autocapitalize="words"></div>
+      <div><label for="pCat">Category</label>
+        <input id="pCat" list="catList" placeholder="Open" autocapitalize="words">
+        <datalist id="catList"></datalist></div>
+      <div class="narrow"><label for="pGen">Gender</label>
+        <input id="pGen" list="genList" placeholder="Men" autocapitalize="words">
+        <datalist id="genList"></datalist></div>
+      <div><label for="pRace">Race</label><select id="pRace"></select></div>
+      <button id="pAdd" class="primary narrow">Add</button>
     </div>
-    <div class="row" style="margin-top:.6rem">
-      <button id="pasteAdd" class="primary">Add runners</button>
-      <input type="file" id="csv" accept=".csv">
-    </div>
-    <p class="note" id="rosterCount" style="margin-top:.8rem"></p>
-    <div class="row">
+    <p class="fieldErr" id="pErr" hidden></p>
+    <p class="note">Press Enter in any field to add. Category and gender suggest
+    what you have already used, so <code>Veteran</code> does not become three
+    divisions by accident.</p>
+
+    <p class="note" id="rosterCount" style="margin-top:1rem"></p>
+    <table class="roster"><thead><tr>
+      <th class="num">Bib</th><th>Name</th><th>Category</th><th>Gender</th>
+      <th>Race</th><th></th>
+    </tr></thead><tbody id="rosterList"></tbody></table>
+
+    <details style="margin-top:1rem">
+      <summary class="note">Add many at once &mdash; paste or CSV</summary>
+      <p class="note" style="margin-top:.6rem">One runner per line as
+      <code>bib, name, category, gender</code> &mdash; commas matter. A CSV may
+      also carry a <code>race</code> column, so one file can cover every distance.</p>
+      <textarea id="paste" rows="5" placeholder="1, Tenzing Bhutia, Open, Men&#10;2, Anita Rai, Veteran, Women"></textarea>
+      <div class="row" style="margin-top:.6rem">
+        <div><label for="pasteRace">Add these runners to</label><select id="pasteRace"></select></div>
+      </div>
+      <div class="row" style="margin-top:.6rem">
+        <button id="pasteAdd">Add runners</button>
+        <input type="file" id="csv" accept=".csv">
+      </div>
+    </details>
+
+    <div class="row" style="margin-top:1rem">
       <button id="printBibs">Print bibs with QR codes</button>
     </div>
   </section>

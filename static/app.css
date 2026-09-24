@@ -1012,3 +1012,24 @@ figure.figure {
 }
 .filebtn:hover { background: var(--ink-4); }
 .filebtn:focus-within { outline: 2px solid var(--paint); outline-offset: 2px; }
+
+/* ---------- add-runner row ----------
+   Five fields on one line on a laptop, stacking on a phone. The bib stays
+   narrow because it is nearly always one to three digits. */
+
+.addrunner { align-items: flex-end; }
+.addrunner .narrow { flex: 0 1 7rem; }
+
+.roster { margin-top: .4rem; }
+.roster td { vertical-align: middle; }
+.roster button { width: auto; padding: .35rem .7rem; font-size: .82rem; }
+.roster tbody tr:hover td { background: rgba(255, 255, 255, .03); }
+
+@media (max-width: 560px) {
+  .addrunner > * { flex: 1 1 100%; }
+  .addrunner .narrow { flex: 1 1 6rem; }
+  /* Gender and race are the least-used columns when scanning a start list on
+     a phone; bib and name are what you check. */
+  .roster th:nth-child(4), .roster td:nth-child(4),
+  .roster th:nth-child(5), .roster td:nth-child(5) { display: none; }
+}

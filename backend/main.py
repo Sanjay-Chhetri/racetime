@@ -549,6 +549,44 @@ async def import_participants_csv(code: str, file: UploadFile = File(...), db: S
     return add_participants(code, rows, db)
 
 
+@app.delete("/api/participants/{pid}", status_code=204)
+def delete_participant(pid: int, db: Session = Depends(get_db)):
+    """Remove a runner from the start list.
+
+    Any reads already taken for that bib stay where they are -- reads are
+    append-only and keyed by bib, not by participant. They simply show up in
+    the audit log as belonging to an unregistered bib, which is exactly what
+    happened, and re-adding the bib picks them up again.
+    """
+    p = db.get(Participant, pid)
+    if p:
+        db.delete(p)
+        db.commit()
+
+
+@app.patch("/api/participants/{pid}", response_model=schemas.ParticipantOut)
+def update_participant(pid: int, payload: schemas.ParticipantIn, db: Session = Depends(get_db)):
+    """Correct a runner's details. Changing a bib invalidates their printed
+    QR code, so the caller is trusted to reprint."""
+    p = db.get(Participant, pid)
+    if not p:
+        raise HTTPException(404, f"No runner with id {pid}")
+    fields = payload.model_dump(exclude_unset=True)
+    new_bib = fields.get("bib", p.bib)
+    if new_bib != p.bib:
+        clash = db.query(Participant).filter(
+            Participant.event_id == p.event_id,
+            Participant.bib == new_bib,
+            Participant.id != pid).first()
+        if clash:
+            raise HTTPException(409, f"Bib {new_bib} is already taken by {clash.name}")
+    for field, value in fields.items():
+        setattr(p, field, value)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
 @app.post("/api/events/{code}/participants/{bib}/dnf", response_model=schemas.ParticipantOut)
 def mark_dnf(code: str, bib: str, dnf: bool = True, db: Session = Depends(get_db)):
     ev = _get_event(db, code)

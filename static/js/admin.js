@@ -121,7 +121,7 @@ function renderRaces() {
   // Both pickers offer the same list, so a checkpoint and a start list can
   // never drift onto different races by accident.
   const opts = ev.races.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
-  for (const id of ['cpRace', 'pasteRace']) {
+  for (const id of ['cpRace', 'pasteRace', 'pRace']) {
     const sel = $(id);
     const keep = sel.value;
     sel.innerHTML = opts || '<option value="">Add a race first</option>';
@@ -225,8 +225,16 @@ let roster = [];
 async function loadRoster() {
   roster = await api(`/events/${ev.code}/participants`);
   $('rosterCount').textContent = roster.length
-    ? `${roster.length} runners registered.`
+    ? `${roster.length} runner${roster.length === 1 ? '' : 's'} entered.`
     : 'No runners yet.';
+
+  renderRoster();
+  suggestNextBib();
+
+  // Offer back whatever has already been typed, so "Veteran" does not quietly
+  // become "Vetran" and split a category into two divisions.
+  fillDatalist('catList', roster.map(p => p.category));
+  fillDatalist('genList', ['Men', 'Women', ...roster.map(p => p.gender)]);
 
   // Per-race entry counts, so it is obvious at a glance if a whole distance
   // was imported against the wrong race.
@@ -241,32 +249,107 @@ async function loadRoster() {
   renderPreview();
 }
 
-$('pasteAdd').onclick = e => withBusy(e.currentTarget, async () => {
-  const raceId = Number($('pasteRace').value) || null;
-  if (!raceId && (ev.races || []).length > 1) {
-    fail('Choose which race these runners are entering.');
-    $('pasteRace').focus();
+function fillDatalist(id, values) {
+  const seen = [...new Set(values.filter(Boolean).map(v => v.trim()))].sort();
+  $(id).innerHTML = seen.map(v => `<option value="${esc(v)}">`).join('');
+}
+
+// The start list is the one place a typo hides until race day, so it is shown
+// in full rather than summarised as a count.
+function renderRoster() {
+  const tb = $('rosterList');
+  tb.innerHTML = '';
+  if (!roster.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty">'
+      + '<div class="t">No runners yet</div>'
+      + '<div class="h">Add them one at a time above, or paste a list.</div></td></tr>';
     return;
   }
-  const rows = $('paste').value.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-    const [bib, name, category, gender] = line.split(',').map(s => (s || '').trim());
-    return {
-      bib, name: name || ('Bib ' + bib),
-      category: category || null, gender: gender || null, race_id: raceId,
+  const many = (ev.races || []).length > 1;
+  for (const p of roster) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="num">${esc(p.bib)}</td>` +
+      `<td>${esc(p.name)}</td>` +
+      `<td>${p.category ? esc(p.category) : '<span class="note">—</span>'}</td>` +
+      `<td>${p.gender ? esc(p.gender) : '<span class="note">—</span>'}</td>` +
+      `<td>${many ? esc(raceName(p.race_id) || '—') : '<span class="note">—</span>'}</td>` +
+      `<td class="num"><button data-del="${p.id}" class="danger">Remove</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('button[data-del]').forEach(b => {
+    b.onclick = async () => {
+      const p = roster.find(x => String(x.id) === b.dataset.del);
+      if (!await confirmDialog({
+        title: `Remove ${p ? p.name : 'this runner'}?`,
+        body: 'Any scans already recorded for that bib are kept, and will '
+          + 'reappear if the bib is added again.',
+        confirm: 'Remove runner',
+      })) return;
+      try {
+        await api('/participants/' + b.dataset.del, { method: 'DELETE' });
+        ok('Runner removed.');
+        loadRoster();
+      } catch (e) { fail(e.message); }
     };
-  }).filter(r => r.bib);
-  if (!rows.length) { fail('Nothing to add — paste one runner per line.'); return; }
+  });
+}
+
+// Bibs are usually sequential, so offering the next one removes the commonest
+// piece of typing and the commonest duplicate.
+function suggestNextBib() {
+  const nums = roster.map(p => parseInt(p.bib, 10)).filter(n => !Number.isNaN(n));
+  $('pBib').value = nums.length ? String(Math.max(...nums) + 1) : '1';
+}
+
+function pError(msg) {
+  const el = $('pErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+async function addOneRunner() {
+  pError('');
+  const bib = $('pBib').value.trim();
+  const name = $('pName').value.trim();
+  if (!bib) { pError('Give the runner a bib number.'); $('pBib').focus(); return; }
+  if (!name) { pError('Give the runner a name.'); $('pName').focus(); return; }
+  if (roster.some(p => p.bib === bib)) {
+    pError(`Bib ${bib} is already taken by ${roster.find(p => p.bib === bib).name}.`);
+    $('pBib').focus(); $('pBib').select();
+    return;
+  }
+  const raceId = Number($('pRace').value) || null;
+  if (!raceId && (ev.races || []).length > 1) {
+    pError('Choose which race this runner is entering.');
+    $('pRace').focus();
+    return;
+  }
   try {
-    const added = await api(`/events/${ev.code}/participants`, json('POST', rows));
-    $('paste').value = '';
-    // Skipped rows are the interesting number: it means those bibs were
-    // already entered, which is usually a re-paste rather than a mistake.
-    const skipped = rows.length - added.length;
-    ok(`Added ${added.length} runner${added.length === 1 ? '' : 's'}.`
-      + (skipped ? ` ${skipped} already entered and skipped.` : ''));
-    loadRoster();
-  } catch (err) { fail(err.message); }
-});
+    await api(`/events/${ev.code}/participants`, json('POST', [{
+      bib, name,
+      category: $('pCat').value.trim() || null,
+      gender: $('pGen').value.trim() || null,
+      race_id: raceId,
+    }]));
+    // Name clears, category and gender stay: a start list is usually entered
+    // in runs of the same division, and the race should not reset either.
+    $('pName').value = '';
+    await loadRoster();
+    $('pBib').focus();
+  } catch (e) { pError(e.message); }
+}
+
+$('pAdd').onclick = e => withBusy(e.currentTarget, addOneRunner);
+
+// Enter anywhere in the row adds the runner, so a whole start list can be
+// typed without reaching for the mouse.
+for (const id of ['pBib', 'pName', 'pCat', 'pGen']) {
+  $(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addOneRunner(); }
+  });
+  $(id).addEventListener('input', () => pError(''));
+}
 
 $('csv').onchange = async e => {
   const file = e.target.files[0];
