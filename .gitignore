@@ -35,3 +35,4 @@ desktop.ini
 
 # Left over from a shell that did not understand brace expansion
 {backend,static/
+.vercel
