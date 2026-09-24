@@ -1,4 +1,5 @@
 import { queue, makeSyncer, measureClockOffset, correctedNow, uuid } from '/js/store.js';
+import { confirmDialog } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 
@@ -13,6 +14,7 @@ let cfg = JSON.parse(localStorage.getItem(SETTINGS) || 'null');
 let participants = new Map();
 let lastSeen = new Map();
 let syncer = null;
+let scanner = null;
 let deviceId = localStorage.getItem('racetime.device') || uuid();
 localStorage.setItem('racetime.device', deviceId);
 
@@ -88,7 +90,7 @@ function startCapture() {
       : `sending · ${pending}`;
   });
 
-  const scanner = new Html5Qrcode('reader', { verbose: false });
+  scanner = new Html5Qrcode('reader', { verbose: false });
   scanner.start(
     { facingMode: 'environment' },
     { fps: 10, qrbox: { width: 240, height: 240 } },
@@ -169,6 +171,46 @@ function addRecent(bib, at, known) {
   $('recent').prepend(li);
   while ($('recent').children.length > 40) $('recent').lastChild.remove();
 }
+
+/* ---------- switching checkpoint ----------
+   The saved choice is what makes a locked phone, a closed tab or a dead zone
+   cost nothing: reopening resumes scanning instead of asking again, and a
+   volunteer cannot quietly re-pick the wrong checkpoint halfway through a
+   race. But being unable to change it at all is its own trap -- one phone
+   covering two points, or a checkpoint picked wrongly at setup. Hence an
+   explicit, confirmed way out rather than clearing site data. */
+
+$('changeCp').onclick = async () => {
+  // queue.all() is the whole outbox for this device; it is only ever this
+  // phone's own unsent scans.
+  const pending = await queue.all().then(q => q.length).catch(() => 0);
+  if (!await confirmDialog({
+    title: 'Switch to a different checkpoint?',
+    body: (pending
+      ? `${pending} scan${pending === 1 ? '' : 's'} on this phone have not reached the server yet. `
+        + 'They are safe -- each one already carries the checkpoint it was taken at, '
+        + 'and they will still sync. '
+      : '')
+      + 'Scans taken from now on will be recorded against the new checkpoint.',
+    confirm: 'Choose another',
+    danger: false,
+  })) return;
+
+  // Release the camera before returning to setup, or the next start fails on
+  // a device that allows only one active stream.
+  if (scanner) {
+    try { await scanner.stop(); } catch { /* it may already be stopped */ }
+    try { scanner.clear(); } catch { /* nothing to clear */ }
+    scanner = null;
+  }
+
+  localStorage.removeItem(SETTINGS);
+  cfg = null;
+  $('capture').hidden = true;
+  $('setup').hidden = false;
+  $('pick').hidden = true;
+  $('setupErr').textContent = '';
+};
 
 /* Resume straight into capture if this phone was already set up -- a volunteer
    who accidentally closes the tab mid-race should not have to be talked through

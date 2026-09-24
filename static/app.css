@@ -386,6 +386,10 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
 /* ---------- capture screen ---------- */
 
 .capture { display: flex; flex-direction: column; height: 100dvh; }
+/* An author `display` beats the browser's own [hidden] rule at equal
+   specificity, so this section stayed on screen after being hidden. The same
+   workaround already exists for .flash below. */
+.capture[hidden] { display: none; }
 
 .capture-bar {
   display: flex; align-items: center; gap: .6rem;
