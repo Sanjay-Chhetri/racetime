@@ -8,8 +8,23 @@ let ev = null;
 
 const api = async (path, opts) => {
   const res = await fetch('/api' + path, opts);
-  const body = res.status === 204 ? null : await res.json();
-  if (!res.ok) throw new Error((body && body.detail) || ('HTTP ' + res.status));
+  if (res.status === 204) return null;
+
+  // A failing request does not always answer in JSON -- a crash, a proxy or a
+  // gateway timeout replies in plain text or HTML. Parsing blindly turned
+  // those into "Unexpected token 'I'", which told the operator nothing about
+  // what had actually gone wrong.
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+
+  if (!res.ok) {
+    const detail = body && body.detail;
+    throw new Error(
+      typeof detail === 'string' ? detail
+      : Array.isArray(detail) ? detail.map(d => d.msg || d).join('; ')
+      : `The server returned ${res.status}${res.statusText ? ' ' + res.statusText : ''}.`);
+  }
   return body;
 };
 

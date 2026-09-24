@@ -13,9 +13,10 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import schemas
@@ -149,6 +150,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(IntegrityError)
+async def _integrity_error(request, exc):
+    """Answer a constraint violation instead of crashing.
+
+    Uniqueness is enforced in the database as well as in the handlers, and the
+    database wins races the handlers cannot see. Unhandled, SQLAlchemy's error
+    became a 500 whose body was the plain text "Internal Server Error" -- which
+    the frontend then tried to parse as JSON, so the operator saw
+    "Unexpected token 'I'" instead of what was actually wrong.
+    """
+    detail = "That value is already taken."
+    text_ = str(getattr(exc, "orig", exc)).lower()
+    if "uq_checkpoint_name" in text_ or "checkpoints.name" in text_:
+        detail = ("A checkpoint with that name already exists in this event. "
+                  "Names are unique across the whole event, not per race, "
+                  "because volunteers pick from one flat list -- so use "
+                  "'5K Start' and '2K Start' rather than '0km' twice.")
+    elif "uq_participant_bib" in text_ or "participants.bib" in text_:
+        detail = "That bib number is already used by another runner in this event."
+    elif "uq_race_name" in text_ or "races.name" in text_:
+        detail = "This event already has a race with that name."
+    elif "events.code" in text_:
+        detail = "That event code is already taken."
+    return JSONResponse(status_code=409, content={"detail": detail})
+
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
