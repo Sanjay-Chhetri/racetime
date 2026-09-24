@@ -342,16 +342,23 @@ Two things to know about this platform:
 - **Nothing may be written to disk.** Uploaded artwork is stored in the database
   for exactly this reason, so it works here unchanged.
 
-### Railway or Fly.io
+### Railway or Render (recommended)
 
-A better architectural fit — a long-running process with a persistent disk, so
-there are no cold starts and SQLite would even work for a small race (though
-Postgres is still the right answer).
+A better architectural fit than serverless — a long-running process, so there
+are no cold starts when a volunteer's first scan of the morning arrives. The
+repo carries a `Procfile` and a `render.yaml`, so neither needs any code
+changes.
 
-```bash
-# Railway: point it at the repo, then
-DATABASE_URL=postgresql://...   # add in the dashboard
-```
+**Railway:** New Project → Deploy from GitHub repo → add a Postgres database.
+Railway injects `DATABASE_URL` automatically and reads the `Procfile`.
+
+**Render:** New → Blueprint → point at this repo. `render.yaml` declares both
+the web service and a free Postgres instance, and wires `DATABASE_URL` between
+them.
+
+Attach a database on either. Without one the app falls back to SQLite on a disk
+the platform does not keep, and warns loudly at startup that every race will be
+erased on the next deploy.
 
 Roughly ₹0–1,500 a month on any of these until you have real traffic.
 

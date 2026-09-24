@@ -15,17 +15,33 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./racetime.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# A serverless host gives every invocation a fresh, empty, read-only
-# filesystem. SQLite there does not fail -- it quietly starts from nothing on
-# each cold start, so an organiser would create a race and find it gone a
-# minute later. Refusing to boot is far kinder than losing a race day.
-if DATABASE_URL.startswith("sqlite") and os.getenv("VERCEL"):
-    raise RuntimeError(
-        "DATABASE_URL is not set. This deployment is serverless, where SQLite "
-        "silently loses all data between requests. Point DATABASE_URL at a "
-        "Postgres instance (Vercel Postgres, Neon and Supabase all have a free "
-        "tier) and redeploy."
-    )
+# Every hosted platform gives the app a filesystem it does not keep. On a
+# serverless host that is per-request; on a container host it is per-deploy.
+# Either way SQLite does not error, it just quietly starts from nothing, so an
+# organiser creates a race and finds it gone. That is worth shouting about.
+_SERVERLESS = ("VERCEL", "AWS_LAMBDA_FUNCTION_NAME")
+_CONTAINER = ("RAILWAY_ENVIRONMENT", "RENDER", "FLY_APP_NAME", "DYNO")
+
+if DATABASE_URL.startswith("sqlite"):
+    if any(os.getenv(v) for v in _SERVERLESS):
+        # Per-request loss is instant and total; refusing to boot is kinder.
+        raise RuntimeError(
+            "DATABASE_URL is not set. This deployment is serverless, where "
+            "SQLite silently loses all data between requests. Point "
+            "DATABASE_URL at a Postgres instance (Neon, Supabase and Vercel "
+            "Postgres all have a free tier) and redeploy."
+        )
+    if any(os.getenv(v) for v in _CONTAINER):
+        # Here the data survives until the next deploy, so the app still runs
+        # -- but nobody should discover this the morning after a race.
+        import warnings
+        warnings.warn(
+            "DATABASE_URL is not set, so this deployment is using SQLite on a "
+            "disk the platform does not keep. Every race you create will be "
+            "erased on the next deploy or restart. Attach a Postgres database "
+            "and set DATABASE_URL.",
+            RuntimeWarning, stacklevel=2,
+        )
 
 # check_same_thread is a SQLite-only quirk: FastAPI serves requests on a
 # threadpool, and SQLite objects to being touched from a thread other than the
