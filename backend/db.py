@@ -48,7 +48,22 @@ if DATABASE_URL.startswith("sqlite"):
 # one that created them unless we say otherwise.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+engine_kwargs = {"connect_args": connect_args, "pool_pre_ping": True}
+
+if any(os.getenv(v) for v in _SERVERLESS) and not DATABASE_URL.startswith("sqlite"):
+    # Serverless invocations do not share memory, so SQLAlchemy's usual pool is
+    # not a pool at all -- it is one private pool per concurrent invocation,
+    # each holding connections open. Under load that exhausts the database's
+    # connection limit while most of those connections sit idle.
+    #
+    # NullPool opens a connection per request and closes it again. The pooling
+    # belongs to the provider's own pooler, which is shared across invocations:
+    # on Neon that is the connection string whose host contains "-pooler".
+    from sqlalchemy.pool import NullPool
+    engine_kwargs["poolclass"] = NullPool
+    engine_kwargs.pop("pool_pre_ping")   # meaningless without a pool
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
