@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -177,6 +177,52 @@ async def _integrity_error(request, exc):
     return JSONResponse(status_code=409, content={"detail": detail})
 
 
+# --------------------------------------------------------------------------
+# Admin authentication
+# --------------------------------------------------------------------------
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+
+if not ADMIN_TOKEN:
+    print(
+        "\n  WARNING: ADMIN_TOKEN is not set, so every endpoint is open."
+        "\n  Anyone who can reach this server can create, edit and"
+        "\n  delete races. That is fine on a laptop. Set ADMIN_TOKEN"
+        "\n  before putting this on the internet.\n",
+        flush=True,
+    )
+
+
+def require_admin(x_admin_token: str = Header(default="")) -> None:
+    """Guard the endpoints that change a race.
+
+    Left open on purpose, because the two apps that need them cannot hold a
+    secret: a volunteer's capture screen and the public results page are just
+    static files served to anyone. So reading a single event, its start list,
+    its results and its artwork stay public -- and so does POSTing reads.
+
+    That last one is a conscious v1 tradeoff. Reads are append-only and every
+    one of them can be voided, so the worst an anonymous poster can do is add
+    noise a race director clears from the audit screen. It is not data loss,
+    and it buys a capture app that works on any phone with no setup.
+    """
+    if not ADMIN_TOKEN:
+        return
+    # compare_digest keeps the check constant-time, so the token cannot be
+    # guessed a character at a time by timing the responses.
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(401, "Admin token missing or incorrect")
+
+
+ADMIN = [Depends(require_admin)]
+
+
+@app.get("/api/admin/check")
+def admin_check(_: None = Depends(require_admin)):
+    """Lets the admin page tell a good token from a bad one before it saves it."""
+    return {"ok": True, "protected": bool(ADMIN_TOKEN)}
+
+
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -235,12 +281,12 @@ def _get_event(db: Session, code: str) -> Event:
     return ev
 
 
-@app.get("/api/events", response_model=List[schemas.EventOut])
+@app.get("/api/events", response_model=List[schemas.EventOut], dependencies=ADMIN)
 def list_events(db: Session = Depends(get_db)):
     return db.query(Event).order_by(Event.created_at.desc()).all()
 
 
-@app.post("/api/events", response_model=schemas.EventOut, status_code=201)
+@app.post("/api/events", response_model=schemas.EventOut, status_code=201, dependencies=ADMIN)
 def create_event(payload: schemas.EventIn, db: Session = Depends(get_db)):
     if db.query(Event).filter(Event.code == payload.code).first():
         raise HTTPException(409, f"Event code '{payload.code}' is already taken")
@@ -256,7 +302,7 @@ def get_event(code: str, db: Session = Depends(get_db)):
     return _get_event(db, code)
 
 
-@app.post("/api/events/{code}/start", response_model=schemas.EventOut)
+@app.post("/api/events/{code}/start", response_model=schemas.EventOut, dependencies=ADMIN)
 def set_start(code: str, at: datetime | None = None, db: Session = Depends(get_db)):
     """Fire the gun. Omit `at` to use the server clock right now."""
     ev = _get_event(db, code)
@@ -296,7 +342,7 @@ def _sniff_image(blob: bytes) -> str:
 _import_disk_artwork()
 
 
-@app.post("/api/events/{code}/artwork", response_model=schemas.EventOut)
+@app.post("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=ADMIN)
 async def upload_artwork(code: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Attach race artwork to an event.
 
@@ -337,7 +383,7 @@ def get_artwork(code: str, db: Session = Depends(get_db)):
     )
 
 
-@app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut)
+@app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=ADMIN)
 def clear_artwork(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     ev.artwork_url = None
@@ -348,7 +394,7 @@ def clear_artwork(code: str, db: Session = Depends(get_db)):
     return ev
 
 
-@app.patch("/api/events/{code}/branding", response_model=schemas.EventOut)
+@app.patch("/api/events/{code}/branding", response_model=schemas.EventOut, dependencies=ADMIN)
 def set_branding(code: str, payload: schemas.BrandingIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     # exclude_unset so that PATCHing only the tagline does not wipe the colour.
@@ -388,7 +434,7 @@ def list_races(code: str, db: Session = Depends(get_db)):
     return _get_event(db, code).races
 
 
-@app.post("/api/events/{code}/races", response_model=schemas.RaceOut, status_code=201)
+@app.post("/api/events/{code}/races", response_model=schemas.RaceOut, status_code=201, dependencies=ADMIN)
 def add_race(code: str, payload: schemas.RaceIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     if any(r.name.lower() == payload.name.strip().lower() for r in ev.races):
@@ -401,7 +447,7 @@ def add_race(code: str, payload: schemas.RaceIn, db: Session = Depends(get_db)):
     return race
 
 
-@app.patch("/api/races/{race_id}", response_model=schemas.RaceOut)
+@app.patch("/api/races/{race_id}", response_model=schemas.RaceOut, dependencies=ADMIN)
 def update_race(race_id: int, payload: schemas.RaceIn, db: Session = Depends(get_db)):
     race = db.get(Race, race_id)
     if not race:
@@ -413,7 +459,7 @@ def update_race(race_id: int, payload: schemas.RaceIn, db: Session = Depends(get
     return race
 
 
-@app.delete("/api/races/{race_id}", status_code=204)
+@app.delete("/api/races/{race_id}", status_code=204, dependencies=ADMIN)
 def delete_race(race_id: int, db: Session = Depends(get_db)):
     race = db.get(Race, race_id)
     if not race:
@@ -451,7 +497,7 @@ def _assert_sequence_free(db: Session, ev: Event, race_id, sequence: int,
             f"Give this checkpoint a different order number.")
 
 
-@app.post("/api/events/{code}/checkpoints", response_model=schemas.CheckpointOut, status_code=201)
+@app.post("/api/events/{code}/checkpoints", response_model=schemas.CheckpointOut, status_code=201, dependencies=ADMIN)
 def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     if payload.kind not in ("start", "split", "finish"):
@@ -466,7 +512,7 @@ def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depen
     return cp
 
 
-@app.patch("/api/checkpoints/{cp_id}", response_model=schemas.CheckpointOut)
+@app.patch("/api/checkpoints/{cp_id}", response_model=schemas.CheckpointOut, dependencies=ADMIN)
 def update_checkpoint(cp_id: int, payload: schemas.CheckpointUpdate,
                       db: Session = Depends(get_db)):
     cp = db.get(Checkpoint, cp_id)
@@ -498,7 +544,7 @@ def list_checkpoints(code: str, db: Session = Depends(get_db)):
     return ev.checkpoints
 
 
-@app.delete("/api/checkpoints/{cp_id}", status_code=204)
+@app.delete("/api/checkpoints/{cp_id}", status_code=204, dependencies=ADMIN)
 def delete_checkpoint(cp_id: int, db: Session = Depends(get_db)):
     cp = db.get(Checkpoint, cp_id)
     if cp:
@@ -516,7 +562,7 @@ def list_participants(code: str, db: Session = Depends(get_db)):
     return sorted(ev.participants, key=lambda p: p.bib.zfill(8))
 
 
-@app.post("/api/events/{code}/participants", response_model=List[schemas.ParticipantOut])
+@app.post("/api/events/{code}/participants", response_model=List[schemas.ParticipantOut], dependencies=ADMIN)
 def add_participants(code: str, payload: List[schemas.ParticipantIn], db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     existing = {p.bib for p in ev.participants}
@@ -536,7 +582,7 @@ def add_participants(code: str, payload: List[schemas.ParticipantIn], db: Sessio
     return added
 
 
-@app.post("/api/events/{code}/participants/csv", response_model=List[schemas.ParticipantOut])
+@app.post("/api/events/{code}/participants/csv", response_model=List[schemas.ParticipantOut], dependencies=ADMIN)
 async def import_participants_csv(code: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Import a start list.
 
@@ -576,7 +622,7 @@ async def import_participants_csv(code: str, file: UploadFile = File(...), db: S
     return add_participants(code, rows, db)
 
 
-@app.delete("/api/participants/{pid}", status_code=204)
+@app.delete("/api/participants/{pid}", status_code=204, dependencies=ADMIN)
 def delete_participant(pid: int, db: Session = Depends(get_db)):
     """Remove a runner from the start list.
 
@@ -591,7 +637,7 @@ def delete_participant(pid: int, db: Session = Depends(get_db)):
         db.commit()
 
 
-@app.patch("/api/participants/{pid}", response_model=schemas.ParticipantOut)
+@app.patch("/api/participants/{pid}", response_model=schemas.ParticipantOut, dependencies=ADMIN)
 def update_participant(pid: int, payload: schemas.ParticipantIn, db: Session = Depends(get_db)):
     """Correct a runner's details. Changing a bib invalidates their printed
     QR code, so the caller is trusted to reprint."""
@@ -614,7 +660,7 @@ def update_participant(pid: int, payload: schemas.ParticipantIn, db: Session = D
     return p
 
 
-@app.post("/api/events/{code}/participants/{bib}/dnf", response_model=schemas.ParticipantOut)
+@app.post("/api/events/{code}/participants/{bib}/dnf", response_model=schemas.ParticipantOut, dependencies=ADMIN)
 def mark_dnf(code: str, bib: str, dnf: bool = True, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     p = db.query(Participant).filter(
@@ -694,7 +740,7 @@ def ingest_reads(code: str, payload: schemas.ReadBatchIn, db: Session = Depends(
     return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
 
 
-@app.get("/api/events/{code}/reads")
+@app.get("/api/events/{code}/reads", dependencies=ADMIN)
 def list_reads(code: str, limit: int = 500, db: Session = Depends(get_db)):
     """Raw audit log, newest first."""
     ev = _get_event(db, code)
@@ -713,7 +759,7 @@ def list_reads(code: str, limit: int = 500, db: Session = Depends(get_db)):
     } for r in rows]
 
 
-@app.post("/api/reads/{read_id}/void")
+@app.post("/api/reads/{read_id}/void", dependencies=ADMIN)
 def void_read(read_id: str, voided: bool = True, db: Session = Depends(get_db)):
     """Exclude a read from timing without deleting it.
 

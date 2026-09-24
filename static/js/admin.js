@@ -1,13 +1,65 @@
 import QRCode from '/vendor/qrcode.esm.js';
 // Runner names and race names reach the bib and the certificate as markup, and
 // they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
-import { esc, ok, fail, confirmDialog, withBusy } from '/js/ui.js';
+import { esc, ok, fail, confirmDialog, promptDialog, withBusy } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 let ev = null;
 
+/* ---------- admin token ----------
+   A shared secret, held in localStorage and sent on every write. The server
+   decides whether it is needed; if ADMIN_TOKEN is unset there the app simply
+   never sees a 401 and never asks. */
+
+const TOKEN_KEY = 'racetime.adminToken';
+let adminToken = localStorage.getItem(TOKEN_KEY) || '';
+
+function setToken(t) {
+  adminToken = t || '';
+  if (adminToken) localStorage.setItem(TOKEN_KEY, adminToken);
+  else localStorage.removeItem(TOKEN_KEY);
+  renderLock();
+}
+
+async function tokenWorks(t) {
+  const res = await fetch('/api/admin/check', { headers: { 'X-Admin-Token': t } });
+  return res.ok;
+}
+
+/** Ask for the token, checking it before storing so a typo is caught here
+ *  rather than on whatever the operator tries to do next. */
+async function askForToken(reason) {
+  for (;;) {
+    const entered = await promptDialog({
+      title: 'Admin token',
+      body: reason || 'This server is protected. Enter the admin token to make changes.',
+      placeholder: 'paste the token',
+      confirm: 'Unlock',
+    });
+    if (entered === null) return false;          // cancelled
+    if (await tokenWorks(entered)) { setToken(entered); ok('Unlocked.'); return true; }
+    reason = 'That token was not accepted. Try again.';
+  }
+}
+
 const api = async (path, opts) => {
-  const res = await fetch('/api' + path, opts);
+  opts = { ...(opts || {}) };
+  opts.headers = { ...(opts.headers || {}) };
+  if (adminToken) opts.headers['X-Admin-Token'] = adminToken;
+
+  let res = await fetch('/api' + path, opts);
+
+  // A 401 means the token is missing, wrong, or was rotated on the server.
+  // Clear it and ask once, then replay the request so the operator does not
+  // lose what they were doing.
+  if (res.status === 401) {
+    setToken('');
+    const unlocked = await askForToken('This server needs an admin token.');
+    if (!unlocked) throw new Error('Admin token required.');
+    opts.headers['X-Admin-Token'] = adminToken;
+    res = await fetch('/api' + path, opts);
+  }
+
   if (res.status === 204) return null;
 
   // A failing request does not always answer in JSON -- a crash, a proxy or a
@@ -35,6 +87,42 @@ const json = (method, body) => ({
 });
 
 const fmtTime = iso => iso ? new Date(iso).toLocaleString() : 'not started';
+
+/* ---------- lock indicator ---------- */
+
+let serverProtected = false;
+
+function renderLock() {
+  const b = $('lock');
+  if (!serverProtected) { b.hidden = true; return; }
+  b.hidden = false;
+  const unlocked = Boolean(adminToken);
+  b.className = 'lockbtn ' + (unlocked ? 'open' : 'shut');
+  b.textContent = unlocked ? 'unlocked' : 'locked';
+  b.title = unlocked
+    ? 'This browser can make changes. Click to lock it again.'
+    : 'Read-only. Click to enter the admin token.';
+}
+
+$('lock').onclick = async () => {
+  if (adminToken) { setToken(''); ok('Locked. This browser can no longer make changes.'); }
+  else await askForToken();
+};
+
+/** Ask the server whether it is protected at all, so a laptop running with no
+ *  ADMIN_TOKEN never sees a lock it does not need. */
+(async () => {
+  try {
+    const res = await fetch('/api/admin/check',
+      adminToken ? { headers: { 'X-Admin-Token': adminToken } } : undefined);
+    if (res.status === 401) { serverProtected = true; setToken(''); }
+    else {
+      const body = await res.json().catch(() => ({}));
+      serverProtected = Boolean(body.protected);
+    }
+  } catch { /* offline: leave the lock hidden rather than guess */ }
+  renderLock();
+})();
 
 /* ---------- open / create ---------- */
 

@@ -110,6 +110,58 @@ export function confirmDialog(opts) {
   });
 }
 
+/**
+ * Ask for a single value. Resolves the string, or null if cancelled.
+ *
+ * Same shape as confirmDialog rather than window.prompt, which blocks the page
+ * and looks like a browser error.
+ */
+export function promptDialog(opts) {
+  const { title, body = '', placeholder = '', confirm = 'OK', cancel = 'Cancel',
+          password = false } = opts;
+
+  return new Promise(resolve => {
+    const prev = document.activeElement;
+    const back = document.createElement('div');
+    back.className = 'modal-back noprint';
+    back.innerHTML =
+      `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pt">
+         <h3 id="pt">${esc(title)}</h3>
+         ${body ? `<p>${esc(body)}</p>` : ''}
+         <input class="val" type="${password ? 'password' : 'text'}"
+                placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false">
+         <div class="modal-acts" style="margin-top:1rem">
+           <button class="cancel">${esc(cancel)}</button>
+           <button class="go primary">${esc(confirm)}</button>
+         </div>
+       </div>`;
+
+    const input = back.querySelector('.val');
+    const done = value => {
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      if (prev && prev.focus) prev.focus();
+      resolve(value);
+    };
+
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      if (e.key === 'Enter' && document.activeElement === input) {
+        e.preventDefault();
+        done(input.value.trim());
+      }
+    }
+
+    back.querySelector('.cancel').onclick = () => done(null);
+    back.querySelector('.go').onclick = () => done(input.value.trim());
+    back.onclick = e => { if (e.target === back) done(null); };
+    document.addEventListener('keydown', onKey, true);
+
+    document.body.appendChild(back);
+    input.focus();
+  });
+}
+
 /* ---------- async button state ---------- */
 
 /**

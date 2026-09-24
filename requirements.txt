@@ -3,4 +3,9 @@ uvicorn[standard]>=0.27
 sqlalchemy>=2.0
 pydantic>=2.6
 python-multipart>=0.0.9
+# Two Postgres drivers on purpose. SQLAlchemy picks one from the URL scheme:
+# "postgresql://" and "postgresql+psycopg2://" need psycopg2, while
+# "postgresql+psycopg://" needs psycopg 3. Neon, Supabase and Vercel each hand
+# out a different form, so shipping both means the URL always works.
 psycopg2-binary>=2.9 ; sys_platform != "emscripten"
+psycopg[binary]>=3.1 ; sys_platform != "emscripten"

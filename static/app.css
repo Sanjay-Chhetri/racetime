@@ -91,6 +91,18 @@ p  { margin: 0 0 1rem; color: var(--muted); max-width: 62ch; }
 .masthead h1 { margin: 0; }
 .masthead .where { color: var(--muted); font-size: .9rem; }
 
+/* Whether this browser can change anything should never be a guess. */
+.lockbtn {
+  width: auto; flex: none; margin-left: auto;
+  padding: .3rem .7rem; border-radius: var(--r-pill);
+  font-size: .78rem; font-weight: 600;
+  background: var(--ink-2); border: 1px solid var(--rule); color: var(--muted);
+}
+.lockbtn:hover { background: var(--ink-3); color: var(--paper); }
+.lockbtn.open { color: #6fd3a0; border-color: rgba(52, 160, 107, .45); }
+.lockbtn.shut { color: var(--paint); border-color: rgba(242, 197, 0, .45); }
+.lockbtn[hidden] { display: none; }
+
 /* Numerals are the hero everywhere: bibs, clocks, distances. */
 .num, td.num, .clock {
   font-family: 'IBM Plex Mono', monospace;
