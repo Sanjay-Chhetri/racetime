@@ -36,3 +36,7 @@ desktop.ini
 # Left over from a shell that did not understand brace expansion
 {backend,static/
 .vercel
+
+# Recorded demo video — regenerate rather than version it
+*.mp4
+*.webm
