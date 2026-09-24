@@ -1037,3 +1037,21 @@ figure.figure {
   .roster th:nth-child(4), .roster td:nth-child(4),
   .roster th:nth-child(5), .roster td:nth-child(5) { display: none; }
 }
+
+/* A band naming each race when the whole field is on screen. Without it the
+   rank column restarts at 1 partway down the table with nothing to explain
+   why, which reads as a bug rather than as two races. */
+tr.racedivider td {
+  padding: 1.1rem .5rem .4rem;
+  border-bottom: 2px solid var(--paint);
+  background: none;
+}
+tr.racedivider .nm {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.15rem; text-transform: uppercase; letter-spacing: .02em;
+}
+tr.racedivider .km,
+tr.racedivider .n {
+  font-size: .8rem; color: var(--muted); margin-left: .6rem;
+}
+tr.racedivider .n { float: right; }

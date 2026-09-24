@@ -216,7 +216,25 @@ function render() {
     return;
   }
 
+  // With every race on screen the rank column restarts at 1 for each one,
+  // which is correct -- a 5K winner and a 10K winner are both first -- but
+  // reads as a fault until you see where one field ends and the next begins.
+  const showDividers = manyRaces && race === 'all' && sort.key === 'position';
+  let lastRace = null;
+
   rows.forEach(r => {
+    if (showDividers && r.race_id !== lastRace) {
+      lastRace = r.race_id;
+      const info = (data.races || []).find(x => x.id === r.race_id);
+      const n = rows.filter(x => x.race_id === r.race_id).length;
+      const head = document.createElement('tr');
+      head.className = 'racedivider';
+      head.innerHTML =
+        `<td colspan="5"><span class="nm">${esc(info ? info.name : 'Other')}</span>` +
+        `${info && info.distance_km ? `<span class="km">${info.distance_km} km</span>` : ''}` +
+        `<span class="n">${n} runner${n === 1 ? '' : 's'}</span></td>`;
+      tb.appendChild(head);
+    }
     const [tone, label] = STATUS[r.status];
     const tr = document.createElement('tr');
     tr.className = `runner-row ${r.status}` +
