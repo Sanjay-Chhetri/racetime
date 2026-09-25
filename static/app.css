@@ -188,6 +188,15 @@ tr.finished td.pos { color: var(--paint); font-weight: 600; }
 .fieldErr::before { content: '!'; font-weight: 700; color: var(--stop); }
 .fieldErr[hidden] { display: none; }
 
+/* The same box, for something that went right in an unexpected way -- an image
+   resized to fit, say. In red it would read as a failure. */
+.fieldErr.plain {
+  color: var(--muted);
+  background: var(--rule-soft);
+  border-left-color: var(--rule);
+}
+.fieldErr.plain::before { content: 'i'; color: var(--muted); font-style: italic; }
+
 .empty { padding: var(--s6) var(--s4); text-align: center; color: var(--muted); }
 .empty .t { font-weight: 600; color: var(--paper); margin-bottom: var(--s1); }
 .empty .h { font-size: .85rem; }

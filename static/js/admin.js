@@ -1,7 +1,8 @@
 import QRCode from '/vendor/qrcode.esm.js';
 // Runner names and race names reach the bib and the certificate as markup, and
 // they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
-import { esc, ok, fail, confirmDialog, promptDialog, withBusy } from '/js/ui.js';
+import { esc, ok, fail, confirmDialog, promptDialog, withBusy, fitImageForUpload }
+  from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 let ev = null;
@@ -72,6 +73,13 @@ const api = async (path, opts) => {
 
   if (!res.ok) {
     const detail = body && body.detail;
+    // A 413 is usually the host rejecting the body at the edge, before the app
+    // sees it, so it answers in plain text and there is no detail to show.
+    // "The server returned 413" told the operator nothing they could act on.
+    if (res.status === 413 && !detail) {
+      throw new Error('That file is too large to upload. Save it at a smaller ' +
+                      'size, or pick a smaller image.');
+    }
     throw new Error(
       typeof detail === 'string' ? detail
       : Array.isArray(detail) ? detail.map(d => d.msg || d).join('; ')
@@ -520,7 +528,8 @@ $('saveBrand').onclick = e => withBusy(e.currentTarget, async () => {
   try {
     if ($('artFile').files[0]) {
       const fd = new FormData();
-      fd.append('file', $('artFile').files[0]);
+      fd.append('file', await fitImageForUpload($('artFile').files[0],
+                                                n => { $('brandMsg').textContent = n; }));
       ev = await api(`/events/${ev.code}/artwork`, { method: 'POST', body: fd });
       $('artFile').value = '';
     }
@@ -545,10 +554,20 @@ function syncBadgeFields() {
 }
 $('badgeMode').onchange = syncBadgeFields;
 
+// Resizing is worth mentioning, but it is not a failure, so it does not use
+// the red error line.
+function certNote(msg) {
+  const el = $('certErr');
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.classList.toggle('plain', !!msg);
+}
+
 function certError(msg) {
   const el = $('certErr');
   el.textContent = msg || '';
   el.hidden = !msg;
+  el.classList.remove('plain');   // an error after a notice must still read as one
 }
 
 $('saveCert').onclick = e => withBusy(e.currentTarget, async () => {
@@ -563,7 +582,7 @@ $('saveCert').onclick = e => withBusy(e.currentTarget, async () => {
   try {
     if ($('certFile').files[0]) {
       const fd = new FormData();
-      fd.append('file', $('certFile').files[0]);
+      fd.append('file', await fitImageForUpload($('certFile').files[0], certNote));
       ev = await api(`/events/${ev.code}/certificate-artwork`, { method: 'POST', body: fd });
       $('certFile').value = '';
     }

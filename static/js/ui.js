@@ -202,3 +202,73 @@ export function emptyState(cols, title, hint = '') {
     ${hint ? `<div class="h">${esc(hint)}</div>` : ''}
   </div></td></tr>`;
 }
+
+/* ---------- image uploads ----------
+
+   Serverless hosting refuses a request body over about 4.5 MB, and it does so
+   at the edge: the app never sees it, so the app's own "under 5 MB" message
+   never gets a chance to appear. All the operator got back was a bare status
+   code. A photo straight off a phone is routinely 6-12 MB, so this was not an
+   edge case -- it was most of them.
+
+   Rather than report the failure more politely, shrink the picture so it does
+   not happen. Artwork is a background: the certificate renders it at
+   1080x1350 and the bib is printed a few inches wide, so nothing above ~2000px
+   survives to be seen. A file already small enough is passed through
+   untouched, which keeps a carefully made PNG exactly as it was. */
+
+const UPLOAD_LIMIT = 3.5 * 1024 * 1024;   // clear of the 4.5 MB platform ceiling
+const MAX_EDGE = 2000;
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('That file could not be read as an image. PNG, JPEG or WebP.'));
+    };
+    img.src = url;
+  });
+}
+
+const toBlob = (canvas, quality) =>
+  new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+
+/**
+ * Return a file small enough to upload, re-encoding only when it has to.
+ * `onNote` is called with a sentence to show if the picture was changed.
+ */
+export async function fitImageForUpload(file, onNote) {
+  if (!file || file.size <= UPLOAD_LIMIT) return file;
+
+  const img = await loadImage(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+  let w = Math.round(img.naturalWidth * scale);
+  let h = Math.round(img.naturalHeight * scale);
+
+  // Drop the quality, then the size, until it fits. Artwork sits behind large
+  // type, so it reaches the eye softened by the overlay well before the
+  // compression shows.
+  for (const [factor, quality] of [[1, 0.85], [1, 0.7], [0.75, 0.7], [0.55, 0.65]]) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * factor);
+    canvas.height = Math.round(h * factor);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await toBlob(canvas, quality);
+    if (blob && blob.size <= UPLOAD_LIMIT) {
+      const mb = n => (n / (1024 * 1024)).toFixed(1);
+      if (onNote) {
+        onNote(`Your image was ${mb(file.size)} MB, larger than the server accepts, ` +
+               `so it was resized to ${canvas.width}\u00d7${canvas.height} ` +
+               `(${mb(blob.size)} MB) before uploading.`);
+      }
+      return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg',
+                      { type: 'image/jpeg' });
+    }
+  }
+  throw new Error('That image is too large to upload even after resizing. ' +
+                  'Please save it smaller and try again.');
+}

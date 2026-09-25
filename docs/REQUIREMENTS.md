@@ -260,6 +260,12 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 ### FR-8 — Race artwork and printable bibs
 
 - **FR-8.1** Upload artwork per event. **PNG, JPEG or WebP only, 5 MB maximum.**
+- **FR-8.1a** Serverless hosts reject a request body over ~4.5 MB at the edge,
+  where the app's own limit and its JSON error never apply — the operator saw a
+  bare status code. The browser therefore resizes any file over 3.5 MB (longest
+  edge 2000 px, JPEG, quality stepped down until it fits) and reports the change.
+  A file already under the threshold is uploaded unaltered, so a deliberately
+  prepared PNG keeps its transparency and its exact bytes.
 - **FR-8.2** The file type is determined by **inspecting magic bytes**, not the
   declared `Content-Type`. SVG is refused — see [§8.2](#82-no-svg-uploads).
 - **FR-8.3** The image is stored **in the database**, never on disk. The uploaded

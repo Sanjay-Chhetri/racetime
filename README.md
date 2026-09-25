@@ -186,6 +186,11 @@ Upload race artwork in Race admin. **PNG, JPEG or WebP, 5 MB maximum.** SVG is
 refused on purpose — uploads are served from your own origin and an SVG can carry
 script.
 
+A photo straight off a phone is usually 6–12 MB, and serverless hosts refuse a
+request body over about 4.5 MB at the edge, before the app can answer. So the
+browser resizes anything over 3.5 MB to fit — longest edge 2000 px — and says so
+when it does. A file already small enough is uploaded byte for byte.
+
 Two bib layouts, switchable per event:
 
 | Layout | Looks | Costs |
