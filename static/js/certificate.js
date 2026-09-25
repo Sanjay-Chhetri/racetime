@@ -195,6 +195,13 @@ function raceDate() {
  * who wants to look it up.
  */
 function rankBadge(r) {
+  const mode = ev.badge_mode || 'placing';
+
+  // Not every event is a competition. A school walk wants everyone to get the
+  // same word, and some events want no badge at all.
+  if (mode === 'none') return null;
+  if (mode === 'text') return (ev.badge_text || '').trim() || null;
+
   const earned = (place, size) => place && place <= 3 && size && place <= size / 2;
   if (earned(r.position, r.field_size)) return `${ordinal(r.position)} overall`;
   if (earned(r.category_position, r.category_size) && r.category) {
@@ -215,7 +222,10 @@ async function buildCard(r) {
   const card = document.createElement('div');
   card.className = 'share-card';
   card.style.setProperty('--accent', ev.accent_color || '#f2c500');
-  if (ev.artwork_url) card.style.setProperty('--art', `url("${ev.artwork_url}")`);
+  // Its own portrait artwork when there is one; otherwise the bib's, which is
+  // what every event used before the two were separated.
+  const art = ev.cert_artwork_url || ev.artwork_url;
+  if (art) card.style.setProperty('--art', `url("${art}")`);
 
   card.innerHTML =
     `<div class="body">
@@ -400,7 +410,8 @@ async function renderA4(r) {
   const cert = document.createElement('div');
   cert.className = 'cert';
   cert.style.setProperty('--accent', ev.accent_color || '#f2c500');
-  if (ev.artwork_url) cert.style.setProperty('--art', `url("${ev.artwork_url}")`);
+  const a4Art = ev.cert_artwork_url || ev.artwork_url;
+  if (a4Art) cert.style.setProperty('--art', `url("${a4Art}")`);
 
   cert.innerHTML =
     `<div class="inner">

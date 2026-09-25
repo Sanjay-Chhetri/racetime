@@ -43,6 +43,20 @@ class Event(Base):
     # image per event, so the row is cheap and it survives any host.
     artwork_blob = Column(LargeBinary, nullable=True)
     artwork_type = Column(String(32), nullable=True)
+    # The certificate gets its own image. One upload cannot serve both: the bib
+    # is a 180x132mm landscape card and the share card is 1080x1350 portrait,
+    # so whichever way the artwork is composed, the other crop is wrong.
+    # Null means "fall back to the bib artwork", which is the old behaviour.
+    cert_artwork_url = Column(String(255), nullable=True)
+    cert_artwork_blob = Column(LargeBinary, nullable=True)
+    cert_artwork_type = Column(String(32), nullable=True)
+
+    # placing | text | none. "placing" shows a rank only when it is genuinely an
+    # achievement; "text" shows the same word to everyone, which is what a
+    # school walk wants; "none" shows nothing at all.
+    badge_mode = Column(String(8), nullable=True)
+    badge_text = Column(String(40), nullable=True)
+
     accent_color = Column(String(16), nullable=True)
     # Free text under the race name: "12 October 2026 · Siliguri".
     tagline = Column(String(160), nullable=True)

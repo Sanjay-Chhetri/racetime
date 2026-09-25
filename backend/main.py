@@ -129,6 +129,11 @@ def _import_disk_artwork():
 _BLOB = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
 
 _add_missing_columns("events", {
+    "cert_artwork_url": "VARCHAR(255)",
+    "cert_artwork_blob": _BLOB,
+    "cert_artwork_type": "VARCHAR(32)",
+    "badge_mode": "VARCHAR(8)",
+    "badge_text": "VARCHAR(40)",
     "artwork_url": "VARCHAR(255)",
     "artwork_blob": _BLOB,
     "artwork_type": "VARCHAR(32)",
@@ -244,10 +249,17 @@ async def _revalidate_static(request, call_next):
     keeps the immutable caching set where it is served.
     """
     response = await call_next(request)
-    path = request.url.path
-    if path.startswith("/api/"):
+    if response.headers.get("cache-control"):
+        # Artwork sets its own immutable caching and keeps it.
         return response
-    if not response.headers.get("cache-control"):
+
+    if request.url.path.startswith("/api/"):
+        # API responses are live race data, so they are never reused. Without
+        # this they carry no directive at all and a browser caches them by
+        # guesswork -- which meant a certificate kept showing branding the
+        # organiser had already changed.
+        response.headers["Cache-Control"] = "no-store"
+    else:
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     return response
 
@@ -397,6 +409,57 @@ def get_artwork(code: str, db: Session = Depends(get_db)):
         media_type=ev.artwork_type or "application/octet-stream",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+@app.post("/api/events/{code}/certificate-artwork",
+          response_model=schemas.EventOut, dependencies=ADMIN)
+async def upload_cert_artwork(code: str, file: UploadFile = File(...),
+                              db: Session = Depends(get_db)):
+    """Artwork for the finisher card only.
+
+    Separate from the bib because the two shapes disagree: a bib is landscape
+    and a share card is 4:5 portrait, so one image centre-cropped into both
+    always loses something. Leave this unset and the bib artwork is used, which
+    is what every event did before this existed.
+    """
+    ev = _get_event(db, code)
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, "That file is empty")
+    if len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"Artwork must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+    ev.cert_artwork_type = _sniff_image(blob)
+    ev.cert_artwork_blob = blob
+    ev.cert_artwork_url = (
+        f"/api/events/{ev.code}/certificate-artwork?v={secrets.token_hex(4)}")
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@app.get("/api/events/{code}/certificate-artwork")
+def get_cert_artwork(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    if not ev.cert_artwork_blob:
+        raise HTTPException(404, "This event has no certificate artwork")
+    return Response(
+        content=ev.cert_artwork_blob,
+        media_type=ev.cert_artwork_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.delete("/api/events/{code}/certificate-artwork",
+            response_model=schemas.EventOut, dependencies=ADMIN)
+def clear_cert_artwork(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    ev.cert_artwork_url = None
+    ev.cert_artwork_blob = None
+    ev.cert_artwork_type = None
+    db.commit()
+    db.refresh(ev)
+    return ev
 
 
 @app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=ADMIN)

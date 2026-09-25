@@ -153,6 +153,9 @@ async function load(code) {
   $('accent').value = ev.accent_color || '#f2c500';
   $('tagline').value = ev.tagline || '';
   $('bibStyle').value = ev.bib_style || 'full';
+  $('badgeMode').value = ev.badge_mode || 'placing';
+  $('badgeText').value = ev.badge_text || '';
+  syncBadgeFields();
   renderRaces();
   renderCheckpoints();
   loadRoster();
@@ -499,6 +502,60 @@ $('saveBrand').onclick = e => withBusy(e.currentTarget, async () => {
     fail(err.message);
   }
 });
+
+/* ---------- certificate settings ---------- */
+
+// The word only matters when the mode asks for one.
+function syncBadgeFields() {
+  $('badgeTextWrap').hidden = $('badgeMode').value !== 'text';
+}
+$('badgeMode').onchange = syncBadgeFields;
+
+function certError(msg) {
+  const el = $('certErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+$('saveCert').onclick = e => withBusy(e.currentTarget, async () => {
+  certError('');
+  const mode = $('badgeMode').value;
+  const text = $('badgeText').value.trim();
+  if (mode === 'text' && !text) {
+    certError('Type the word you want every finisher to see.');
+    $('badgeText').focus();
+    return;
+  }
+  try {
+    if ($('certFile').files[0]) {
+      const fd = new FormData();
+      fd.append('file', $('certFile').files[0]);
+      ev = await api(`/events/${ev.code}/certificate-artwork`, { method: 'POST', body: fd });
+      $('certFile').value = '';
+    }
+    ev = await api(`/events/${ev.code}/branding`, json('PATCH', {
+      badge_mode: mode,
+      badge_text: mode === 'text' ? text : null,
+    }));
+    ok('Certificate settings saved.');
+  } catch (err) { certError(err.message); }
+});
+
+$('clearCert').onclick = async () => {
+  if (!ev.cert_artwork_url) {
+    certError('There is no certificate image to remove — the bib artwork is being used.');
+    return;
+  }
+  if (!await confirmDialog({
+    title: 'Remove the certificate image?',
+    body: 'Certificates fall back to the bib artwork until you upload another.',
+    confirm: 'Remove image',
+  })) return;
+  try {
+    ev = await api(`/events/${ev.code}/certificate-artwork`, { method: 'DELETE' });
+    ok('Certificate image removed.');
+  } catch (e) { certError(e.message); }
+};
 
 $('clearArt').onclick = async () => {
   if (!ev.artwork_url) { fail('There is no artwork to remove.'); return; }

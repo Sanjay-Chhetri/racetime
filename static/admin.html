@@ -112,6 +112,39 @@
       <button id="clearArt">Remove artwork</button>
     </div>
     <p class="note" id="brandMsg" style="margin-top:.6rem"></p>
+
+    <h3 style="margin:1.4rem 0 .2rem">Finisher certificate</h3>
+    <p class="note">The bib is a wide landscape card and the certificate is tall
+    (4:5, like an Instagram post). One image cannot suit both &mdash; whichever way
+    it is composed, the other crop is wrong. Upload a <strong>portrait</strong>
+    image here, around 1080&nbsp;&times;&nbsp;1350&nbsp;px. Leave it empty and the
+    bib artwork is used, as before.</p>
+    <div class="row">
+      <div>
+        <label for="certFile">Certificate background</label>
+        <input type="file" id="certFile" accept="image/png,image/jpeg,image/webp">
+      </div>
+      <div>
+        <label for="badgeMode">Badge on the certificate</label>
+        <select id="badgeMode">
+          <option value="placing">Placing, when it is an achievement</option>
+          <option value="text">The same word for everyone</option>
+          <option value="none">No badge at all</option>
+        </select>
+      </div>
+      <div id="badgeTextWrap" hidden>
+        <label for="badgeText">Word to show</label>
+        <input id="badgeText" placeholder="Finisher" maxlength="40">
+      </div>
+    </div>
+    <p class="note">A school walk or a charity event usually wants the same word
+    for everyone &mdash; <code>Finisher</code>, <code>Participant</code>, or your
+    event's name &mdash; rather than 1st, 2nd and 3rd.</p>
+    <div class="row" style="margin-top:.6rem">
+      <button id="saveCert" class="primary">Save certificate settings</button>
+      <button id="clearCert">Remove certificate image</button>
+    </div>
+    <p class="fieldErr" id="certErr" hidden></p>
     <div id="artPreview" hidden style="margin-top:.8rem">
       <div class="bibsheet" style="max-width:420px"><div id="previewCard"></div></div>
     </div>

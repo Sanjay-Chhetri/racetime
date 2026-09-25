@@ -93,6 +93,10 @@ class BrandingIn(BaseModel):
     accent_color: Optional[str] = Field(None, max_length=16)
     tagline: Optional[str] = Field(None, max_length=160)
     bib_style: Optional[Literal["full", "band"]] = None
+    # placing = show a rank only when it is an achievement; text = show the same
+    # word to everyone, which is what a school walk wants; none = show nothing.
+    badge_mode: Optional[Literal["placing", "text", "none"]] = None
+    badge_text: Optional[str] = Field(None, max_length=40)
 
 
 class EventOut(BaseModel):
@@ -104,6 +108,9 @@ class EventOut(BaseModel):
     accent_color: Optional[str] = None
     tagline: Optional[str] = None
     bib_style: Optional[str] = None
+    cert_artwork_url: Optional[str] = None
+    badge_mode: Optional[str] = None
+    badge_text: Optional[str] = None
     races: List[RaceOut] = []
     checkpoints: List[CheckpointOut] = []
 
