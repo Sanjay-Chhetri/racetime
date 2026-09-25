@@ -16,11 +16,22 @@
   <div class="masthead"><h1>Checkpoint</h1></div>
   <p>Set this phone up once at your post. It keeps working without a signal.</p>
 
-  <label for="code">Event code</label>
-  <input id="code" placeholder="siliguri10k" autocapitalize="none" autocomplete="off">
-  <button id="load" class="primary" style="margin-top:.6rem">Find event</button>
+  <label for="event">Race day</label>
+  <select id="event"><option value="">Loading…</option></select>
+
+  <!-- Kept for the case where the list cannot be fetched: a volunteer who
+       arrives with no signal can still type the code they were given. -->
+  <div id="manualEvent" hidden>
+    <label for="code">Event code</label>
+    <input id="code" placeholder="siliguri10k" autocapitalize="none" autocomplete="off">
+    <button id="load" class="primary" style="margin-top:.6rem">Find event</button>
+  </div>
 
   <div id="pick" hidden>
+    <div id="raceWrap" hidden>
+      <label for="race">Race</label>
+      <select id="race"></select>
+    </div>
     <label for="cp">Your checkpoint</label>
     <select id="cp"></select>
     <button id="go" class="primary wide" style="margin-top:1rem">Start scanning</button>
@@ -44,6 +55,8 @@
       <input id="manual" class="num" inputmode="numeric" placeholder="Type bib" autocomplete="off">
       <button id="manualAdd" class="narrow">Add</button>
     </div>
+    <div class="scanned"><span class="n" id="scanCount">0</span>
+      <span>scanned at this checkpoint</span></div>
     <ul class="recent" id="recent"></ul>
   </div>
 </section>

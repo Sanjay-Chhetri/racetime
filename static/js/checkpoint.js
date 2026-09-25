@@ -15,36 +15,109 @@ let participants = new Map();
 let lastSeen = new Map();
 let syncer = null;
 let scanner = null;
+let scanned = 0;
 let deviceId = localStorage.getItem('racetime.device') || uuid();
 localStorage.setItem('racetime.device', deviceId);
 
-/* ---------- setup ---------- */
+/* ---------- setup ----------
+   Picking from lists rather than typing a code: a volunteer standing at a
+   junction in the cold should not have to spell an event code correctly, and
+   a typo there is silent -- it just looks like the event does not exist. */
 
-$('load').onclick = async () => {
-  const code = $('code').value.trim();
+let loadedEvent = null;
+
+/** Fill the race-day dropdown. Falls back to typing a code if the list cannot
+ *  be fetched, so arriving with a flaky connection is not a dead end. */
+async function loadEventList() {
+  try {
+    const events = await fetch('/api/events/public').then(r => r.json());
+    if (!Array.isArray(events) || !events.length) throw new Error('none');
+    $('event').innerHTML =
+      (events.length > 1 ? '<option value="">Choose the race day…</option>' : '') +
+      events.map(e => `<option value="${escAttr(e.code)}">${escText(e.name)}</option>`).join('');
+    if (events.length === 1) await chooseEvent(events[0].code);
+  } catch {
+    $('event').parentElement.querySelector('label[for="event"]').hidden = true;
+    $('event').hidden = true;
+    $('manualEvent').hidden = false;
+  }
+}
+
+const escText = t => String(t ?? '').replace(/[&<>]/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const escAttr = t => escText(t).replace(/"/g, '&quot;');
+
+async function chooseEvent(code) {
   $('setupErr').textContent = '';
+  $('pick').hidden = true;
+  loadedEvent = null;
   if (!code) return;
   try {
-    const ev = await (await fetch(`/api/events/${code}`)).json();
+    const ev = await (await fetch(`/api/events/${encodeURIComponent(code)}`)).json();
     if (ev.detail) throw new Error(ev.detail);
-    const sel = $('cp');
-    sel.innerHTML = '';
-    ev.checkpoints.forEach(c => {
-      const o = document.createElement('option');
-      o.value = c.id;
-      o.textContent = `${c.name} — ${c.distance_km} km`;
-      sel.appendChild(o);
-    });
     if (!ev.checkpoints.length) {
-      $('setupErr').textContent = 'This event has no checkpoints yet. Add them in the race admin first.';
+      $('setupErr').textContent =
+        'This race day has no checkpoints yet. Add them in Race admin first.';
       return;
     }
+    loadedEvent = ev;
+
+    // A race picker only earns its place when there is a choice to make.
+    const races = ev.races || [];
+    if (races.length > 1) {
+      $('race').innerHTML =
+        '<option value="">All races</option>' +
+        races.map(r => `<option value="${r.id}">${escText(r.name)}` +
+          `${r.distance_km ? ' — ' + r.distance_km + ' km' : ''}</option>`).join('');
+      $('raceWrap').hidden = false;
+    } else {
+      $('raceWrap').hidden = true;
+      $('race').innerHTML = '';
+    }
+
+    fillCheckpoints();
     $('pick').hidden = false;
-    $('go').onclick = () => begin(ev, ev.checkpoints.find(c => c.id == sel.value));
-  } catch (e) {
-    $('setupErr').textContent = 'Could not load that event. Check the code and your connection.';
+  } catch {
+    $('setupErr').textContent =
+      'Could not load that race day. Check your connection and try again.';
   }
+}
+
+/** Show the checkpoints of the chosen race, or all of them. */
+function fillCheckpoints() {
+  if (!loadedEvent) return;
+  const wanted = $('raceWrap').hidden ? '' : $('race').value;
+  const named = new Map((loadedEvent.races || []).map(r => [r.id, r.name]));
+  const many = (loadedEvent.races || []).length > 1;
+
+  const list = loadedEvent.checkpoints.filter(
+    c => !wanted || String(c.race_id) === wanted);
+
+  const sel = $('cp');
+  sel.innerHTML = list.map(c => {
+    const race = many && named.get(c.race_id) ? ` · ${named.get(c.race_id)}` : '';
+    return `<option value="${c.id}">${escText(c.name)} — ${c.distance_km} km${escText(race)}</option>`;
+  }).join('');
+
+  if (!list.length) {
+    sel.innerHTML = '<option value="">No checkpoints in this race</option>';
+  }
+  $('go').disabled = !list.length;
+}
+
+$('event').onchange = e => chooseEvent(e.target.value);
+$('race').onchange = fillCheckpoints;
+
+$('go').onclick = () => {
+  if (!loadedEvent) return;
+  const cp = loadedEvent.checkpoints.find(c => String(c.id) === $('cp').value);
+  if (cp) begin(loadedEvent, cp);
 };
+
+// The typed-code fallback, used only when the list could not be fetched.
+$('load').onclick = () => chooseEvent($('code').value.trim());
+
+loadEventList();
 
 async function begin(ev, cp) {
   $('clockNote').textContent = 'Checking this phone against the race clock…';
@@ -169,7 +242,11 @@ function addRecent(bib, at, known) {
     `<span>${known ? (participants.get(bib) || '') : '<span class="tag stop">unknown</span>'}</span>` +
     `<span class="t">${at.toLocaleTimeString()}</span>`;
   $('recent').prepend(li);
+  // The list is a receipt, not a log: it is capped so it can never grow into
+  // the viewfinder, and the running count carries the total instead.
   while ($('recent').children.length > 40) $('recent').lastChild.remove();
+  scanned += 1;
+  $('scanCount').textContent = scanned;
 }
 
 /* ---------- switching checkpoint ----------

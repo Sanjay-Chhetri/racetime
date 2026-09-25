@@ -421,10 +421,37 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
 .pill.queued { background: rgba(242,197,0,.16); color: var(--paint); }
 .pill.offline { background: rgba(221,75,57,.18); color: #ff8b7c; }
 
-#reader { flex: 1 1 auto; min-height: 0; background: #000; overflow: hidden; }
+/* A fixed share of the screen, not a share of what is left over. The
+   viewfinder used to be flex:1 against a footer that grew with every scan, so
+   it shrank all morning and a volunteer's aim had to keep changing with it.
+   Now it is the same size at the first runner and the four hundredth. */
+#reader {
+  flex: 0 0 55dvh;
+  background: #000; overflow: hidden;
+}
 #reader video { object-fit: cover !important; }
 
-.capture-foot { flex: none; padding: .6rem .8rem 1rem; background: var(--ink-2); }
+/* Deliberately understated. Switching checkpoint mid-race is rare and
+   consequential, so it should be findable but never the thing a thumb hits by
+   accident next to the scanner. Without this rule it inherits the full-width
+   button style and pushes the checkpoint name off the bar. */
+.linkbtn {
+  width: auto; flex: none;
+  background: none; border: none;
+  padding: .25rem .4rem; min-height: 0;
+  color: var(--muted); font-size: .78rem; font-weight: 600;
+  text-decoration: underline;
+}
+.linkbtn:hover { background: none; color: var(--paper); }
+
+/* Everything below the viewfinder shares what is left and scrolls inside it,
+   so no amount of history can push the camera around. */
+.capture-foot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex; flex-direction: column;
+  padding: .6rem .8rem 1rem; background: var(--ink-2);
+}
 .capture-foot .row { gap: .5rem; }
 
 /* The single loud moment in the product. A volunteer glancing down in
@@ -446,7 +473,7 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
 .flash .what { font-size: .95rem; opacity: .75; }
 .flash[hidden] { display: none; }
 
-.recent { max-height: 34vh; overflow-y: auto; }
+.recent { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .recent li {
   display: flex; gap: .6rem; align-items: baseline;
   padding: .35rem 0; border-bottom: 1px solid rgba(255,255,255,.06);
@@ -455,6 +482,16 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
 .recent { margin: .5rem 0 0; padding: 0; }
 .recent .b { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem; min-width: 3.2rem; }
 .recent .t { font-family: 'IBM Plex Mono', monospace; font-size: .8rem; color: var(--muted); margin-left: auto; }
+
+.scanned {
+  display: flex; align-items: baseline; gap: .5rem;
+  font-size: .78rem; color: var(--muted);
+  padding: .4rem .1rem .1rem; flex: none;
+}
+.scanned .n {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.05rem; color: var(--paper);
+}
 
 /* ---------- printable bibs ----------
    Two jobs at once: a marshal reads the number at ten metres, and the runner

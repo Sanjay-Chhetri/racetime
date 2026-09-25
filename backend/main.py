@@ -281,6 +281,22 @@ def _get_event(db: Session, code: str) -> Event:
     return ev
 
 
+@app.get("/api/events/public")
+def list_events_public(db: Session = Depends(get_db)):
+    """Just enough to fill a dropdown: which races exist, and what they're called.
+
+    The full listing is admin-only, but the certificate finder and the
+    checkpoint setup screen are public pages that still have to offer a choice
+    of race. This exposes only the code and name -- no branding, no gun time,
+    no checkpoints -- and the code is already public, since it is in every link
+    handed to a runner.
+    """
+    return [
+        {"code": e.code, "name": e.name}
+        for e in db.query(Event).order_by(Event.created_at.desc()).all()
+    ]
+
+
 @app.get("/api/events", response_model=List[schemas.EventOut], dependencies=ADMIN)
 def list_events(db: Session = Depends(get_db)):
     return db.query(Event).order_by(Event.created_at.desc()).all()

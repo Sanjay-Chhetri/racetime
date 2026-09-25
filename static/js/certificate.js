@@ -43,7 +43,8 @@ let photoUrl = null;  // a FileReader data URL, never sent anywhere
 async function loadEvents() {
   let events;
   try {
-    events = await fetch('/api/events').then(r => r.json());
+    // The full listing is admin-only; this page only needs names.
+    events = await fetch('/api/events/public').then(r => r.json());
   } catch {
     $('event').innerHTML = '<option value="">Could not load races</option>';
     return;
