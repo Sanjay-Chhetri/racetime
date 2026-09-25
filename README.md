@@ -232,6 +232,19 @@ A **rank badge appears only when the placing is worth sharing** — top three, a
 never in the bottom half of the field, so "3rd of 4" shows nothing. Splits and
 the verification URL are deliberately absent; they stay on the results page.
 
+The certificate takes **its own background image**, separate from the bib's,
+because a bib is landscape and a card is portrait. How it sits is your choice:
+
+| Fit | What it does | Use it when |
+| --- | --- | --- |
+| Fill the card | Fills 4:5 and crops the rest | The image is roughly 4:5 already |
+| Show the whole image | Fits all of it in, and the card takes the image's shape, up to 9:16 | You have an event poster that is taller than 4:5 |
+
+A 1:2 poster filled to a 4:5 card loses its title and its sponsor footer to the
+crop. Fitted, all of it is there, and any space it does not reach is filled with
+a colour sampled from the poster's own border. Upload a tall image and Race
+admin picks this for you, with a note saying why.
+
 Runners can **add their own photo**. It is read in the browser and drawn
 straight into the card — never uploaded, never stored, no endpoint for it.
 Reloading the page discards it. The card is designed to look complete without

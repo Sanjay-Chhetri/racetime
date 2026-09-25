@@ -56,6 +56,11 @@ class Event(Base):
     # school walk wants; "none" shows nothing at all.
     badge_mode = Column(String(8), nullable=True)
     badge_text = Column(String(40), nullable=True)
+    # cover | contain. The card is 4:5, and an event poster rarely is -- a 1:2
+    # banner filled to 4:5 loses its title and its sponsor footer to the crop.
+    # "contain" fits the whole image in and pads the rest. Null means "cover",
+    # which is what every event did before this existed.
+    cert_fit = Column(String(8), nullable=True)
 
     accent_color = Column(String(16), nullable=True)
     # Free text under the race name: "12 October 2026 · Siliguri".

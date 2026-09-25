@@ -134,6 +134,7 @@ _add_missing_columns("events", {
     "cert_artwork_type": "VARCHAR(32)",
     "badge_mode": "VARCHAR(8)",
     "badge_text": "VARCHAR(40)",
+    "cert_fit": "VARCHAR(8)",
     "artwork_url": "VARCHAR(255)",
     "artwork_blob": _BLOB,
     "artwork_type": "VARCHAR(32)",

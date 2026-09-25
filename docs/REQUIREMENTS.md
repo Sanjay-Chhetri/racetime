@@ -260,6 +260,8 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 ### FR-8 — Race artwork and printable bibs
 
 - **FR-8.1** Upload artwork per event. **PNG, JPEG or WebP only, 5 MB maximum.**
+  The bib and the certificate hold **separate** images; see
+  [FR-9.13](#fr-9--finisher-card-certificatehtml) for how the certificate's is fitted.
 - **FR-8.1a** Serverless hosts reject a request body over ~4.5 MB at the edge,
   where the app's own limit and its JSON error never apply — the operator saw a
   bare status code. The browser therefore resizes any file over 3.5 MB (longest
@@ -319,9 +321,26 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   removed again.
 - **FR-9.9** The card is composed for the **no-photo case first**; the photo is
   an addition, not a hole being filled.
-- **FR-9.10** Export renders the card through `html2canvas` at exactly
-  1080 × 1350 after awaiting `document.fonts.ready`, then offers it via
-  `navigator.share()` where files are supported, falling back to a download.
+- **FR-9.10** Export renders the card through `html2canvas` at its full size
+  after awaiting `document.fonts.ready`, then offers it via `navigator.share()`
+  where files are supported, falling back to a download.
+- **FR-9.13** **How the artwork sits** is the organiser's choice, `cert_fit`:
+  - `cover` (the default, and what every event did before) fills the card and
+    crops whatever does not fit.
+  - `contain` fits the whole image in. An event poster is rarely 4:5 — a 1:2
+    banner filled to the card loses its title and its sponsor footer — so this
+    keeps all of it.
+- **FR-9.14** Under `contain` the **card takes the artwork's shape**, between
+  4:5 and 9:16. Fitting a 1:2 poster into a fixed 4:5 card would leave a narrow
+  strip with wide bands; matching its shape means it fills the width instead.
+  9:16 is the ceiling because it is as tall as a phone shows without shrinking.
+- **FR-9.15** Whatever the fitted image does not reach is filled with a colour
+  **sampled from the artwork's own outer pixels**, so the join does not read as
+  one. It is resolved before the card is exported, never after, or a saved PNG
+  could carry accent-coloured bands the preview never showed.
+- **FR-9.16** Race admin measures a chosen certificate image and, when it is
+  much taller than the card (ratio above 1.45), pre-selects `contain` and says
+  why. It is a suggestion; the dropdown still decides.
 - **FR-9.11** The A4 certificate is still generated and remains printable, but
   is a secondary action rather than the main path.
 - **FR-9.12** Deep links work: `/certificate.html#<code>/<bib>`.

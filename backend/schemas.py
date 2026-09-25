@@ -97,6 +97,9 @@ class BrandingIn(BaseModel):
     # word to everyone, which is what a school walk wants; none = show nothing.
     badge_mode: Optional[Literal["placing", "text", "none"]] = None
     badge_text: Optional[str] = Field(None, max_length=40)
+    # cover = fill the 4:5 card and crop what does not fit; contain = fit the
+    # whole image in, padded to the sides it does not reach.
+    cert_fit: Optional[Literal["cover", "contain"]] = None
 
 
 class EventOut(BaseModel):
@@ -111,6 +114,7 @@ class EventOut(BaseModel):
     cert_artwork_url: Optional[str] = None
     badge_mode: Optional[str] = None
     badge_text: Optional[str] = None
+    cert_fit: Optional[str] = None
     races: List[RaceOut] = []
     checkpoints: List[CheckpointOut] = []
 

@@ -197,6 +197,7 @@ async function load(code) {
   $('bibStyle').value = ev.bib_style || 'full';
   $('badgeMode').value = ev.badge_mode || 'placing';
   $('badgeText').value = ev.badge_text || '';
+  $('certFit').value = ev.cert_fit || 'cover';
   syncBadgeFields();
   renderRaces();
   renderCheckpoints();
@@ -554,6 +555,30 @@ function syncBadgeFields() {
 }
 $('badgeMode').onchange = syncBadgeFields;
 
+/* Nobody uploads a poster expecting it to be cropped, and the crop is only
+   visible after saving and opening a certificate. So when the picture is much
+   taller than the card, say so at the moment it is chosen and pre-select the
+   fit that keeps all of it. It is a suggestion, not a rule -- the dropdown is
+   right there and the operator can put it back. */
+$('certFile').onchange = () => {
+  const file = $('certFile').files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    const ratio = img.naturalHeight / img.naturalWidth;
+    if (ratio > 1.45 && $('certFit').value === 'cover') {   // 4:5 is 1.25
+      $('certFit').value = 'contain';
+      certNote(`That image is ${img.naturalWidth}×${img.naturalHeight}, ` +
+               `much taller than the card. Filling the card would crop its top ` +
+               `and bottom, so “Show the whole image” has been selected for you.`);
+    }
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+};
+
 // Resizing is worth mentioning, but it is not a failure, so it does not use
 // the red error line.
 function certNote(msg) {
@@ -589,6 +614,7 @@ $('saveCert').onclick = e => withBusy(e.currentTarget, async () => {
     ev = await api(`/events/${ev.code}/branding`, json('PATCH', {
       badge_mode: mode,
       badge_text: mode === 'text' ? text : null,
+      cert_fit: $('certFit').value,
     }));
     ok('Certificate settings saved.');
   } catch (err) { certError(err.message); }

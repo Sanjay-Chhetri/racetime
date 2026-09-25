@@ -652,7 +652,8 @@ mark { background: rgba(242,197,0,.28); color: inherit; border-radius: 2px; }
   position: relative;
   width: 100%; max-width: 210mm; aspect-ratio: 210 / 297;
   margin: 0 auto;
-  background: #101418 var(--art, none) center / cover no-repeat;
+  background: var(--art-pad, #101418) var(--art, none)
+              center / var(--art-fit, cover) no-repeat;
   color: #fff;
   border-radius: 10px; overflow: hidden;
   display: flex; flex-direction: column;
@@ -946,7 +947,8 @@ figure.figure {
   width: 100%;
   max-width: 26rem;
   margin: 0 auto;
-  aspect-ratio: 1080 / 1350;
+  /* 4:5 unless a fitted poster asks for a taller card -- see --card-h. */
+  aspect-ratio: 1080 / var(--card-h, 1350);
   overflow: hidden;
   border-radius: var(--r3);
   box-shadow: var(--shadow-2);
@@ -954,13 +956,17 @@ figure.figure {
 
 .share-card {
   position: absolute; top: 0; left: 0;
-  width: 1080px; height: 1350px;
+  width: 1080px; height: calc(var(--card-h, 1350) * 1px);
   transform-origin: top left;   /* scale set from JS against the frame width */
   overflow: hidden;
   display: flex; flex-direction: column;
   color: #fff;
-  /* Accent is the fallback ground when no artwork has been uploaded. */
-  background: var(--accent, #f2c500) var(--art, none) center / cover no-repeat;
+  /* Accent is the fallback ground when no artwork has been uploaded.
+     --art-fit is cover by default; an event poster that is much taller or wider
+     than 4:5 sets contain instead, and --art-pad fills what the image does not
+     reach, sampled from the artwork's own edge so the join is invisible. */
+  background: var(--art-pad, var(--accent, #f2c500))
+              var(--art, none) center / var(--art-fit, cover) no-repeat;
   font-family: Barlow, system-ui, sans-serif;
 }
 

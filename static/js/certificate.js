@@ -31,7 +31,12 @@ const ordinal = n => {
 
 const MAX_ROWS = 40;
 const CARD_W = 1080;
-const CARD_H = 1350;
+const CARD_H = 1350;                 // 4:5, the default and the widest we go
+const CARD_H_MAX = 1920;             // 9:16, the tallest a phone shows whole
+
+// The height of the card currently on screen. It only ever leaves CARD_H when
+// a fitted poster is taller than 4:5 -- see cardHeightFor.
+let cardH = CARD_H;
 
 let data = null;      // results payload for the selected race
 let ev = null;        // the event, with its branding
@@ -212,6 +217,71 @@ function rankBadge(r) {
 
 /* ---------- the share card ---------- */
 
+/* When the artwork is fitted rather than filled, the card is wider or taller
+   than the image and something has to occupy the rest. A named colour would
+   fight the artwork, so the artwork chooses it: the average of its outermost
+   pixels, which is whatever the poster's own border already is. On the CINI
+   poster that is its cream paper, and the join does not read as a join. */
+const edgeCache = new Map();
+const sizeCache = new Map();
+
+/** Natural size of an image, or null if it will not load. */
+function imageSize(url) {
+  if (sizeCache.has(url)) return Promise.resolve(sizeCache.get(url));
+  return new Promise(resolve => {
+    const done = v => { sizeCache.set(url, v); resolve(v); };
+    const img = new Image();
+    img.onload = () => done({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => done(null);
+    img.src = url;
+  });
+}
+
+/* A poster is usually far taller than 4:5. Fitted into a 4:5 card it becomes a
+   narrow strip with wide bands either side -- the whole image, technically,
+   but not worth sharing. So the card takes the poster's shape instead, up to
+   9:16, which is as tall as a phone will show without shrinking it. Anything
+   4:5 or wider keeps the original card and is padded as before. */
+async function cardHeightFor(art) {
+  const size = await imageSize(art);
+  if (!size || !size.w) return CARD_H;
+  const wanted = Math.round(CARD_W * (size.h / size.w));
+  return Math.max(CARD_H, Math.min(CARD_H_MAX, wanted));
+}
+
+function edgeColour(url) {
+  if (edgeCache.has(url)) return Promise.resolve(edgeCache.get(url));
+  return new Promise(resolve => {
+    const done = value => { edgeCache.set(url, value); resolve(value); };
+    const img = new Image();
+    img.crossOrigin = 'anonymous';   // same origin anyway, but keeps it explicit
+    img.onload = () => {
+      try {
+        // Downsample hard first: the average of 64x64 is the average of the
+        // original, and it costs nothing to read back.
+        const n = 64;
+        const c = document.createElement('canvas');
+        c.width = c.height = n;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, n, n);
+        const px = ctx.getImageData(0, 0, n, n).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        const at = (x, y) => {
+          const i = (y * n + x) * 4;
+          r += px[i]; g += px[i + 1]; b += px[i + 2]; count++;
+        };
+        for (let i = 0; i < n; i++) { at(i, 0); at(i, n - 1); at(0, i); at(n - 1, i); }
+        done(`rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ` +
+             `${Math.round(b / count)})`);
+      } catch {
+        done(null);   // a tainted canvas is not worth failing the certificate over
+      }
+    };
+    img.onerror = () => done(null);
+    img.src = url;
+  });
+}
+
 async function buildCard(r) {
   const km = raceDistance(r);
   const distance = km ? (Number.isInteger(km) ? km : km.toFixed(1)) + ' km' : null;
@@ -225,7 +295,21 @@ async function buildCard(r) {
   // Its own portrait artwork when there is one; otherwise the bib's, which is
   // what every event used before the two were separated.
   const art = ev.cert_artwork_url || ev.artwork_url;
-  if (art) card.style.setProperty('--art', `url("${art}")`);
+  cardH = CARD_H;
+  if (art) {
+    card.style.setProperty('--art', `url("${art}")`);
+    if (ev.cert_fit === 'contain') {
+      card.style.setProperty('--art-fit', 'contain');
+      // Awaited rather than left to settle later: the saved PNG is taken from
+      // this element, and a card exported before these were known would come
+      // out 4:5 with accent-coloured bands down its sides.
+      cardH = await cardHeightFor(art);
+      const pad = await edgeColour(art);
+      if (pad) card.style.setProperty('--art-pad', pad);
+    }
+  }
+  card.style.setProperty('--card-h', cardH);
+  $('cardFrame').style.setProperty('--card-h', cardH);
 
   card.innerHTML =
     `<div class="body">
@@ -316,8 +400,8 @@ async function renderPng() {
   card.style.transform = 'none';
   try {
     const canvas = await html2canvas(card, {
-      width: CARD_W, height: CARD_H,
-      windowWidth: CARD_W, windowHeight: CARD_H,
+      width: CARD_W, height: cardH,
+      windowWidth: CARD_W, windowHeight: cardH,
       scale: 1, backgroundColor: null, useCORS: true, logging: false,
     });
     return await new Promise(res => canvas.toBlob(res, 'image/png'));
@@ -411,7 +495,15 @@ async function renderA4(r) {
   cert.className = 'cert';
   cert.style.setProperty('--accent', ev.accent_color || '#f2c500');
   const a4Art = ev.cert_artwork_url || ev.artwork_url;
-  if (a4Art) cert.style.setProperty('--art', `url("${a4Art}")`);
+  if (a4Art) {
+    cert.style.setProperty('--art', `url("${a4Art}")`);
+    // A4 is 1:1.41, so a tall poster crops here too -- same choice applies.
+    if (ev.cert_fit === 'contain') {
+      cert.style.setProperty('--art-fit', 'contain');
+      const pad = await edgeColour(a4Art);
+      if (pad) cert.style.setProperty('--art-pad', pad);
+    }
+  }
 
   cert.innerHTML =
     `<div class="inner">

@@ -135,6 +135,13 @@
         <input type="file" id="certFile" accept="image/png,image/jpeg,image/webp">
       </div>
       <div>
+        <label for="certFit">How it should sit</label>
+        <select id="certFit">
+          <option value="cover">Fill the card &mdash; crops top and bottom</option>
+          <option value="contain">Show the whole image &mdash; pads the sides</option>
+        </select>
+      </div>
+      <div>
         <label for="badgeMode">Badge on the certificate</label>
         <select id="badgeMode">
           <option value="placing">Placing, when it is an achievement</option>
@@ -150,6 +157,11 @@
     <p class="note">A school walk or a charity event usually wants the same word
     for everyone &mdash; <code>Finisher</code>, <code>Participant</code>, or your
     event's name &mdash; rather than 1st, 2nd and 3rd.</p>
+    <p class="note">Use <strong>Show the whole image</strong> when you already
+    have an event poster and it is not 4:5. A tall banner filled to the card's
+    shape loses its title and its sponsor footer to the crop; fitted, it is all
+    there, and the space either side is filled with the poster's own border
+    colour.</p>
     <div class="row" style="margin-top:.6rem">
       <button id="saveCert" class="primary">Save certificate settings</button>
       <button id="clearCert">Remove certificate image</button>
