@@ -127,6 +127,12 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-1.2** List all events, newest first.
 - **FR-1.3** Fire the gun, setting `start_time` to the server clock or to a
   supplied timestamp.
+- **FR-1.4** The admin screen opens an event by picking it from a list of
+  existing races, newest first. Entering the code by hand stays available as a
+  fallback, and Enter in that field opens the event just as the button does.
+- **FR-1.5** `GET /api/events/public` returns only each event's code and name.
+  It is unauthenticated, so the pickers on the admin, checkpoint and certificate
+  screens work whether or not `ADMIN_TOKEN` is set.
 
 ### FR-2 — Races
 
@@ -391,6 +397,7 @@ at `/docs` while the server runs.
 | | Method | Path | Purpose |
 |---|---|---|---|
 | 🔒 | `GET` | `/api/events` | List every event |
+| | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | 🔒 | `POST` | `/api/events` | Create (`409` on duplicate code) |
 | | `GET` | `/api/events/{code}` | One event, with races and checkpoints |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |

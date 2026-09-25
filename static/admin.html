@@ -16,13 +16,20 @@
 </div>
 
 <section class="panel noprint" id="chooser">
-  <div class="row">
-    <div>
-      <label for="code">Event code</label>
-      <input id="code" placeholder="siliguri10k" autocapitalize="none">
+  <label for="pickEvent">Your races</label>
+  <select id="pickEvent"><option value="">Loading…</option></select>
+  <p class="note">Newest first. Choosing one opens it straight away.</p>
+
+  <details style="margin-top:.8rem">
+    <summary class="note">Open by code instead</summary>
+    <div class="row" style="margin-top:.6rem">
+      <div>
+        <label for="code">Event code</label>
+        <input id="code" placeholder="siliguri10k" autocapitalize="none">
+      </div>
+      <button id="open" class="narrow">Open</button>
     </div>
-    <button id="open" class="narrow">Open</button>
-  </div>
+  </details>
   <details style="margin-top:.8rem">
     <summary class="note">Create a new event</summary>
     <label for="newName">Race name</label>

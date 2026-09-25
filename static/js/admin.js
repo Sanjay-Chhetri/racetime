@@ -128,6 +128,38 @@ $('lock').onclick = async () => {
 
 $('open').onclick = () => load($('code').value.trim());
 
+// Enter should open the race. Every other field in this app submits on Enter;
+// this one did not, so the only way through was to reach for the mouse.
+$('code').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); load($('code').value.trim()); }
+});
+
+/* ---------- race picker ----------
+   Typing a code from memory is fine once. By the third event of the season
+   nobody remembers whether it was kpg10k or kpg-10k, and a wrong code just
+   reports that the event does not exist. */
+
+async function loadEventPicker(selected) {
+  const sel = $('pickEvent');
+  try {
+    // The full listing is admin-only; a picker only needs codes and names, so
+    // this works whether or not the browser is unlocked.
+    const events = await fetch('/api/events/public').then(r => r.json());
+    if (!Array.isArray(events) || !events.length) {
+      sel.innerHTML = '<option value="">No races yet — create one below</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Choose a race…</option>' +
+      events.map(e =>
+        `<option value="${esc(e.code)}">${esc(e.name)} — ${esc(e.code)}</option>`).join('');
+    if (selected) sel.value = selected;
+  } catch {
+    sel.innerHTML = '<option value="">Could not load the list</option>';
+  }
+}
+
+$('pickEvent').onchange = e => { if (e.target.value) load(e.target.value); };
+
 $('create').onclick = e => withBusy(e.currentTarget, async () => {
   $('err').textContent = '';
   try {
@@ -135,6 +167,7 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
       code: $('newCode').value.trim(), name: $('newName').value.trim(),
     }));
     ok(`Created “${created.name}”.`);
+    await loadEventPicker(created.code);
     load(created.code);
   } catch (err) { $('err').textContent = err.message; }
 });
@@ -147,6 +180,7 @@ async function load(code) {
   } catch (e) { $('err').textContent = e.message; return; }
   location.hash = code;
   $('code').value = code;
+  if ($('pickEvent').options.length > 1) $('pickEvent').value = code;
   $('event').hidden = false;
   $('evName').textContent = ev.name;
   $('startTime').textContent = fmtTime(ev.start_time);
@@ -666,4 +700,6 @@ async function loadReads() {
 
 $('refreshReads').onclick = loadReads;
 
+// Fill the picker on arrival, and open whatever the address bar names.
+loadEventPicker(location.hash.slice(1));
 if (location.hash.slice(1)) load(location.hash.slice(1));

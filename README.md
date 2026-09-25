@@ -300,6 +300,7 @@ actually touch:
 | | Method | Path | Notes |
 |---|---|---|---|
 | | `GET` | `/api/time` | Clock reference for capture devices |
+| | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | 🔒 | `POST` | `/api/events` | Create an event |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
 | 🔒 | `POST` | `/api/events/{code}/races` | One per distance |
