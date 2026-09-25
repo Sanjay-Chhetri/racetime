@@ -1,6 +1,6 @@
 # RaceTime — Requirements and Functional Specification
 
-**Version:** 1.1 · **Last updated:** 6 September 2026
+**Version:** 1.3 · **Last updated:** 25 September 2026
 
 This document describes what RaceTime does today. It is a record of built and
 verified behaviour, not a wish list. Anything not yet built is confined to
@@ -17,9 +17,10 @@ changing the data model.
 
 **In scope:** event and race setup, start lists, checkpoint capture (QR, manual,
 RFID), clock correction, offline queueing, split and rank computation, a public
-leaderboard, printable branded bibs, and finisher certificates.
+leaderboard, printable branded bibs, shareable finisher cards, and a
+shared-secret admin gate.
 
-**Out of scope today:** authentication, online registration, payments,
+**Out of scope today:** user accounts, online registration, payments, race
 photography, SMS or email notification. See [§10](#10-not-built).
 
 ---
@@ -149,11 +150,26 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-3.3** A checkpoint belongs to exactly one race (subject to FR-2.5).
 - **FR-3.4** Deleting a checkpoint stops its reads counting but does not delete
   them.
+- **FR-3.5** A `sequence` already used by another checkpoint **in the same
+  race** is rejected with `409`, naming the checkpoint that holds it. The same
+  sequence in a different race is allowed, as is a checkpoint keeping its own
+  sequence through an unrelated edit.
+- **FR-3.6** A checkpoint may be corrected in place via `PATCH`, rather than
+  deleted and recreated.
 
 ### FR-4 — Participants (start list)
 
-- **FR-4.1** Add runners as a JSON list, or paste lines as
-  `bib, name, category, gender`.
+- **FR-4.1** Runners are added one at a time through a form with **one field
+  per value** — bib, name, category, gender, race. The bib is pre-filled with
+  the next number, `Enter` in any field submits, and category, gender and race
+  persist between entries while the name clears.
+- **FR-4.1a** Category and gender offer back values already used in the event,
+  so one division does not fracture into several spellings.
+- **FR-4.1b** The full start list is displayed, not summarised as a count, and
+  each row can be removed. Removing a runner keeps their reads, which reappear
+  if the bib is re-added.
+- **FR-4.1c** Bulk entry by pasted `bib, name, category, gender` lines remains
+  available in a collapsed section.
 - **FR-4.2** Import a CSV with header columns `bib, name, category, gender,
   race`. Only `bib` is required. A `race` value is matched against race names, so
   **one file can cover every distance**; an unrecognised race name is rejected
@@ -221,6 +237,14 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-7.5** Sort by rank, bib, name or finish time, ascending or descending.
   **Runners with no finish time always sort last, in both directions.**
 - **FR-7.6** The top three in each race are colour-coded.
+- **FR-7.6a** When more than one race is shown at once, the table is **banded by
+  race**, each band carrying the race name, distance and entry count. Ranks
+  restart at 1 inside each band because each race is placed separately; without
+  the bands that reads as a fault. Bands are dropped when a race filter is
+  applied or the table is sorted by anything other than position.
+- **FR-7.6b** The bib has its own column at the same weight as on the finisher
+  card. At phone widths the row becomes rank / bib / name / time, and never
+  wraps.
 - **FR-7.7** Tapping a runner reveals their placings (*"1st of 19 in Open"*),
   every split with distance, elapsed and pace, a link to their certificate, and a
   Share button.
@@ -255,7 +279,7 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-8.11** A live preview shows a real bib, using the first runner on the
   start list where one exists.
 
-### FR-9 — Finisher certificate (`/certificate.html`)
+### FR-9 — Finisher card (`/certificate.html`)
 
 - **FR-9.1** A race is chosen from a dropdown of all events. A single event
   selects itself rather than presenting a list of one.
@@ -266,22 +290,65 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   (`did not finish`, `still running`, `no sightings`), so searching your own name
   never returns an unexplained blank.
 - **FR-9.4** The list caps at 40 rows with a prompt to narrow the search.
-- **FR-9.5** The certificate shows the event artwork full-bleed under a scrim,
-  the runner's name, finish time, overall placing, **category and gender placings
-  with field sizes**, race distance, average pace, every split, and a QR linking
-  back to the public results for verification.
-- **FR-9.6** All distance and pace figures come from **the runner's own race**.
-- **FR-9.7** Prints as a single A4 portrait page; "Save as PDF" gives a
-  framing-quality copy.
-- **FR-9.8** Deep links work: `/certificate.html#<code>/<bib>` opens a
-  certificate directly, which is what the results table links to.
+- **FR-9.5** The primary output is a **1080 × 1350 px (4:5) share card**, sized
+  for a phone screen rather than a sheet of paper. Hierarchy, largest first:
+  finish time, runner name, then event name with distance and date. Bib number
+  and average pace sit small in a corner alongside a QR to the public results.
+- **FR-9.6** A rank badge appears **only when the placing is an achievement** —
+  top three, and never in the bottom half of the field, so "3rd of 4" shows
+  nothing. Overall rank is preferred; category rank is the fallback.
+- **FR-9.7** Deliberately **absent** from the card: the split list, the
+  verification URL as text, and any placing that fails FR-9.6. All of it remains
+  on the results page.
+- **FR-9.8** A runner may add their own photo. It is read with `FileReader` and
+  drawn straight into the card: **never uploaded, never stored**, with no
+  endpoint, column or table for it. Reloading discards it. It is cover-fitted
+  into a circle above the name with a ring in the accent colour, and can be
+  removed again.
+- **FR-9.9** The card is composed for the **no-photo case first**; the photo is
+  an addition, not a hole being filled.
+- **FR-9.10** Export renders the card through `html2canvas` at exactly
+  1080 × 1350 after awaiting `document.fonts.ready`, then offers it via
+  `navigator.share()` where files are supported, falling back to a download.
+- **FR-9.11** The A4 certificate is still generated and remains printable, but
+  is a secondary action rather than the main path.
+- **FR-9.12** Deep links work: `/certificate.html#<code>/<bib>`.
 
-### FR-10 — Audit
+### FR-10 — Admin authentication
 
-- **FR-10.1** Every read is visible newest-first with bib, checkpoint, time,
-  source and clock drift. Drift over 2 seconds is flagged.
-- **FR-10.2** A read may be **voided**, excluding it from timing while keeping
+- **FR-10.1** The admin token is read from the `ADMIN_TOKEN` environment
+  variable at startup.
+- **FR-10.2** When `ADMIN_TOKEN` is **unset**, every endpoint stays open and a
+  warning is printed at startup. Local development is unaffected.
+- **FR-10.3** When it is set, 19 endpoints require that value in an
+  `X-Admin-Token` header and answer `401` without it: list all events, create
+  event, set start, artwork upload and delete, branding, race create / update /
+  delete, checkpoint create / update / delete, participant add / CSV import /
+  update / delete, mark DNF, the raw reads listing, and void read.
+- **FR-10.4** The token is compared with `secrets.compare_digest`, so it cannot
+  be recovered a character at a time by timing responses.
+- **FR-10.5** These stay **public by design**: a single event by code, its
+  races, its checkpoints, its participants, its results, its artwork,
+  `/api/time`, `/api/health`, and **`POST` reads**. See
+  [§8.1](#81-why-read-ingest-is-open).
+- **FR-10.6** `GET /api/admin/check` reports whether the server is protected and
+  validates a candidate token, so the admin page can tell a good token from a
+  bad one before storing it.
+- **FR-10.7** Race admin shows a `locked` / `unlocked` control in the masthead,
+  and hides it entirely when the server is unprotected. The token is kept in
+  `localStorage`.
+- **FR-10.8** On a `401` the stored token is cleared, the operator is asked
+  again, and **the original request is replayed** so work in progress is not
+  lost.
+
+### FR-11 — Audit
+
+- **FR-11.1** Every read is visible newest-first with bib, checkpoint, time,
+  source and clock drift. Drift over 2 seconds is flagged. The listing requires
+  the admin token.
+- **FR-11.2** A read may be **voided**, excluding it from timing while keeping
   the row. There is no delete.
+
 
 ---
 
@@ -298,87 +365,116 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 | **NFR-7** | Runner names are HTML-escaped everywhere they are rendered, since they arrive from pasted text and uploaded CSVs. |
 | **NFR-8** | SQLite by default with zero setup; `DATABASE_URL` switches to Postgres with no code change. A legacy `postgres://` prefix is normalised automatically. |
 | **NFR-9** | Schema migrations run automatically at import and are idempotent, including a one-time move of any legacy on-disk artwork into the database. |
-| **NFR-10** | **Nothing is written to the filesystem at runtime.** The app therefore runs unchanged on a serverless host. On Vercel it refuses to boot without `DATABASE_URL` rather than silently starting from an empty SQLite file on each cold start. |
+| **NFR-10** | **Every timestamp leaving the API is UTC-aware.** SQLite does not persist tzinfo, and a bare timestamp is parsed by JavaScript as *local* time, which showed IST users a gun time five and a half hours out. |
+| **NFR-11** | Static responses send `Cache-Control: no-cache, must-revalidate`. Without an explicit directive a browser caches heuristically and can run a stale page against fresh JavaScript, which throws on load and renders nothing. |
+| **NFR-12** | On serverless the database engine uses `NullPool`. Invocations do not share memory, so the usual pool becomes one private pool per concurrent invocation and exhausts the connection limit. |
+| **NFR-13** | Both Postgres drivers ship. SQLAlchemy selects one from the URL scheme, and providers differ over `postgresql://` versus `postgresql+psycopg://`. |
+| **NFR-14** | Database constraint violations are answered as `409` with a readable message, never as a bare 500 whose body is plain text. |
+| **NFR-15** | **Nothing is written to the filesystem at runtime.** The app therefore runs unchanged on a serverless host. On Vercel it refuses to boot without `DATABASE_URL` rather than silently starting from an empty SQLite file on each cold start. |
 
 ---
 
 ## 6. API reference
 
-24 routes. Interactive docs at `/docs` while the server runs.
+29 routes. **19 require the admin token** when `ADMIN_TOKEN` is set; they are
+marked 🔒 and answer `401` without an `X-Admin-Token` header. Interactive docs
+at `/docs` while the server runs.
 
-### Clock
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/time` | Reference clock for capture devices |
-| `GET` | `/api/health` | Liveness |
+### Clock and health
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `GET` | `/api/time` | Reference clock for capture devices |
+| | `GET` | `/api/health` | Liveness |
+| | `GET` | `/api/admin/check` | Is this server protected, and is this token valid |
 
 ### Events
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/events` | List, newest first |
-| `POST` | `/api/events` | Create (`409` on duplicate code) |
-| `GET` | `/api/events/{code}` | One event, with races and checkpoints |
-| `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `GET` | `/api/events` | List every event |
+| 🔒 | `POST` | `/api/events` | Create (`409` on duplicate code) |
+| | `GET` | `/api/events/{code}` | One event, with races and checkpoints |
+| 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
 
 ### Branding
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/events/{code}/artwork` | Upload artwork (multipart) |
-| `DELETE` | `/api/events/{code}/artwork` | Remove artwork |
-| `PATCH` | `/api/events/{code}/branding` | Accent colour, tagline, bib layout |
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `POST` | `/api/events/{code}/artwork` | Upload artwork (multipart) |
+| 🔒 | `DELETE` | `/api/events/{code}/artwork` | Remove artwork |
+| | `GET` | `/api/events/{code}/artwork` | Serve the stored image |
+| 🔒 | `PATCH` | `/api/events/{code}/branding` | Accent colour, tagline, bib layout |
 
 ### Races
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/events/{code}/races` | List |
-| `POST` | `/api/events/{code}/races` | Create (`409` on duplicate name) |
-| `PATCH` | `/api/races/{race_id}` | Update |
-| `DELETE` | `/api/races/{race_id}` | Delete (`409` if runners entered) |
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `GET` | `/api/events/{code}/races` | List |
+| 🔒 | `POST` | `/api/events/{code}/races` | Create (`409` on duplicate name) |
+| 🔒 | `PATCH` | `/api/races/{race_id}` | Update |
+| 🔒 | `DELETE` | `/api/races/{race_id}` | Delete (`409` if runners entered) |
 
 ### Checkpoints
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/events/{code}/checkpoints` | List |
-| `POST` | `/api/events/{code}/checkpoints` | Create |
-| `DELETE` | `/api/checkpoints/{cp_id}` | Delete |
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `GET` | `/api/events/{code}/checkpoints` | List |
+| 🔒 | `POST` | `/api/events/{code}/checkpoints` | Create (`409` on duplicate name or sequence) |
+| 🔒 | `PATCH` | `/api/checkpoints/{cp_id}` | Update |
+| 🔒 | `DELETE` | `/api/checkpoints/{cp_id}` | Delete |
 
 ### Participants
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/events/{code}/participants` | Start list |
-| `POST` | `/api/events/{code}/participants` | Add a JSON list |
-| `POST` | `/api/events/{code}/participants/csv` | Import CSV |
-| `POST` | `/api/events/{code}/participants/{bib}/dnf` | Mark DNF |
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `GET` | `/api/events/{code}/participants` | Start list |
+| 🔒 | `POST` | `/api/events/{code}/participants` | Add a JSON list |
+| 🔒 | `POST` | `/api/events/{code}/participants/csv` | Import CSV |
+| 🔒 | `PATCH` | `/api/participants/{pid}` | Correct a runner |
+| 🔒 | `DELETE` | `/api/participants/{pid}` | Remove a runner; their reads are kept |
+| 🔒 | `POST` | `/api/events/{code}/participants/{bib}/dnf` | Mark DNF |
 
 ### Reads and results
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent |
-| `GET` | `/api/events/{code}/reads` | Raw audit log |
-| `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
-| `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
-
----
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent — **public**, see [§8.1](#81-why-read-ingest-is-open) |
+| 🔒 | `GET` | `/api/events/{code}/reads` | Raw audit log |
+| 🔒 | `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
+| | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
 
 ## 7. Screens
 
-| Screen | Path | Audience |
-|---|---|---|
-| Home | `/` | Everyone |
-| Race admin | `/admin.html#<code>` | Organiser |
-| Checkpoint capture | `/checkpoint.html` | Volunteer |
-| Live results | `/results.html#<code>` | Public |
-| Finisher certificate | `/certificate.html#<code>/<bib>` | Runner |
+| Screen | Path | Audience | Needs the token |
+|---|---|---|---|
+| Home | `/` | Everyone | no |
+| Starter guide | `/guide.html` | Anyone new to the app | no |
+| Race admin | `/admin.html#<code>` | Organiser | **yes**, to change anything |
+| Checkpoint capture | `/checkpoint.html` | Volunteer | no |
+| Live results | `/results.html#<code>` | Public | no |
+| Finisher card | `/certificate.html#<code>/<bib>` | Runner | no |
 
 ---
 
 ## 8. Security posture
 
-### 8.1 No authentication
-**Every endpoint is unauthenticated.** Anyone who can reach the server can create
-events, alter start lists and void reads. This is acceptable only on a trusted
-LAN. Put authentication in front of `/admin.html` and the write endpoints before
-exposing this to the internet.
+### 8.1 Why read ingest is open
+
+A shared-secret gate protects every endpoint that changes a race
+([FR-10](#fr-10--admin-authentication)). Five reads and one write stay public on
+purpose, because the two apps that need them cannot hold a secret: the
+volunteers' capture screen and the public results page are static files served
+to anyone who asks.
+
+`POST /api/events/{code}/reads` being public is a conscious v1 tradeoff. Reads
+are append-only and every one of them can be voided, so the worst an anonymous
+poster can achieve is noise a race director clears from the audit screen. That
+is not data loss, and it buys a capture app that works on any phone with no
+setup. If a race ever needs it closed, the capture app would need a per-device
+key issued at checkpoint setup.
+
+### 8.1a Token handling
+
+`ADMIN_TOKEN` is compared with `secrets.compare_digest`, so it cannot be
+recovered a character at a time by timing responses. The admin page keeps it in
+`localStorage` and validates it against `/api/admin/check` before storing, so a
+typo is caught at entry. **Leaving `ADMIN_TOKEN` unset leaves the whole API
+open** — deliberate, so a laptop needs no setup, and announced with a startup
+warning.
 
 ### 8.2 No SVG uploads
 Uploads are served from the application's own origin. An SVG can carry script, so
@@ -418,7 +514,8 @@ gun before or during the race, not after.
 
 ### 9.4 Category and gender are free text
 Ranking groups on the exact string, so `Women` and `women` are two divisions.
-Keep the start list consistent.
+The add-runner form offers back values already used in the event, which stops
+most drift, but a CSV import bypasses that and nothing normalises case.
 
 ### 9.5 Artwork is cropped differently in each place
 One image feeds a 180 × 132 mm bib and an A4 portrait certificate, both
@@ -426,10 +523,17 @@ One image feeds a 180 × 132 mm bib and an A4 portrait certificate, both
 important near the edges or along the bottom, where the scrim is heaviest.
 Recommended source: **3000 × 2000 px (3:2)**, JPEG for photographs.
 
-### 9.6 Visual output is unverified by automated test
-Logic, API behaviour and data are covered by the checks in §11. The *appearance*
-of printed bibs and certificates has not been verified in a browser. **Print one
-bib and one certificate before committing to a print run.**
+### 9.6 Printed output is unverified
+On-screen appearance is now checked in a real browser at several widths (§11).
+What no automated check can cover is **paper**: ink coverage, bleed on cheap
+stock, and whether a QR scans once printed. Print one bib and one card on the
+actual printer before committing to a run.
+
+### 9.7 One shared admin token, not accounts
+There are no named logins, no roles and no audit of who changed what. Everyone
+who administers a race shares one secret, and rotating it signs everybody out.
+That is proportionate for a one- or two-person timing crew and would not be for
+a larger organisation.
 
 ---
 
@@ -437,7 +541,7 @@ bib and one certificate before committing to a print run.**
 
 | Area | Status |
 |---|---|
-| Authentication / authorisation | Not built. Required before public deployment |
+| User accounts / per-user roles | Not built. There is one shared admin token, not named logins |
 | Online registration | Not built. Start lists are imported by the organiser |
 | Payments | Not built |
 | Year grouping of events | Not built. Only useful across multiple seasons |
@@ -451,26 +555,37 @@ None of these require a data-model change; all are additive.
 
 ## 11. Verification performed
 
+Everything below was run against a real browser or a live server, not reasoned
+about. Anything not listed here is unverified.
+
 | Area | Method | Result |
 |---|---|---|
-| Branding endpoints | Live API: upload, serve, partial PATCH, replace, cleanup | Pass |
-| Upload rejection | SVG content named `.png`, declared `image/png` | Rejected `422` |
-| `bib_style` validation | Bogus value posted | Rejected `422` |
-| Migrations | Applied to the existing seeded database | Columns and `races` table added; no data loss |
-| Multi-race ranking | Purpose-built 5K + 10K event, 8 runners | 6/6 checks pass |
-| — one winner per race | | Pass |
-| — 5K winner not ranked against 10K field | | Pass |
-| — category ranks and sizes scoped to race | | Pass |
-| — staggered start honoured (22:00, not 52:00) | | Pass |
-| — race deletion blocked with runners entered | | Rejected `409` |
-| Certificate data assembly | Replayed against live API | Pace, ordinals, splits correct |
-| Ordinal suffixes | `11th/12th/13th` and `21st/22nd/23rd` | Pass |
-| Leaderboard sort | Unfinished runners in both directions | Always sort last |
-| Search and escaping | `<img src=x onerror=...>` as a runner name | Rendered inert |
-| QR generation | `toCanvas` driven with a stub canvas | 108 × 108, dark modules present |
-| JavaScript modules | `node --check` on all five | Pass |
+| **Admin gate** | 19 protected routes called with no token | all `401` |
+| | same routes called with the token | none `401` |
+| | 7 public routes called with no token | none `401` |
+| | a wrong token | `401` |
+| **Runner entry** | Chromium, 13 checks | keyboard entry, bib auto-advance, suggestions, inline duplicate refusal, removal |
+| **Share card** | Chromium, 21 checks across both states | export exactly 1080 × 1350; name and time legible in a 200 px thumbnail |
+| | photo | cover-fit, circular, removable, never uploaded |
+| **Results row** | Chromium at 360 / 414 / 768 / 1280 px | uniform 43.7 px rows, no wrapping, no horizontal overflow |
+| **Race bands** | multi-race event | bands shown with name, distance and count; dropped when one race is filtered |
+| **Checkpoint change** | Chromium with a fake camera, 12 checks | resume on reload, confirmation, cancel, camera released, different checkpoint selectable |
+| **Checkpoint sequence** | 7 cases | duplicate in same race `409` naming the holder; same sequence in another race allowed |
+| **Constraint errors** | duplicate checkpoint and race names | `409` with readable JSON, not a plain-text 500 |
+| **Timezones** | 11 endpoints | 17 timestamps, 0 naive |
+| **Multi-race ranking** | purpose-built 5K + 10K event, 6 checks | 5K winner not ranked against the 10K field; staggered start honoured |
+| **Uploads** | SVG content named `.png`, declared `image/png` | rejected `422` by magic-byte sniff |
+| **Escaping** | `<img src=x onerror=…>` as a runner name | rendered inert |
+| **Migrations** | applied to the existing seeded database | no data loss |
+| **Deployment** | live site after each deploy | all pages `200`, results intact |
 
----
+### Not verified
+
+- The **printed** appearance of bibs and certificates on a real printer. Print
+  one of each before committing to a run.
+- Real QR scanning through a phone camera. Headless Chromium has no camera, so
+  capture was exercised through manual bib entry, which takes the same path.
+- Behaviour under concurrent load.
 
 ## 12. Deployment
 
@@ -484,6 +599,7 @@ Required environment:
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./racetime.db` | Postgres URL in production |
+| `ADMIN_TOKEN` | *(unset)* | **Set this before any public deployment.** Unset means every endpoint is open |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
 HTTPS is mandatory in any deployment: phone cameras will not start without it.

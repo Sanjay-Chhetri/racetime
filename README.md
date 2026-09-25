@@ -28,7 +28,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
 - [Bibs and artwork](#bibs-and-artwork)
-- [Finisher certificates](#finisher-certificates)
+- [Finisher share cards](#finisher-share-cards)
 - [How the timing stays trustworthy](#how-the-timing-stays-trustworthy)
 - [Project layout](#project-layout)
 - [API](#api)
@@ -50,7 +50,8 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 | **Multiple distances** | One event can hold a 5K and a 10K, each with its own course, gun and rankings. |
 | **Category rankings** | Overall, category and gender placings — *"1st of 19 in Open"* — each computed inside its own race. |
 | **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
-| **Finisher certificates** | Generated from real results after the race. Runners search by name, not bib. |
+| **Finisher share cards** | A 1080 × 1350 image built for Instagram and WhatsApp, on your artwork. Runners search by name and can add their own photo. |
+| **Admin gate** | One shared token protects every write. Results and scanning stay public. |
 | **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
 
 ---
@@ -131,9 +132,13 @@ phone at `http://<your-laptop-ip>:8000/checkpoint.html` without a tunnel.
    `10K`. Give it the distance in km.
 3. **Add checkpoints** to each race. Every race needs exactly one marked
    `finish`. Splits are optional but make the results far more interesting.
-4. **Load the start list** — paste `bib, name, category, gender` lines or upload
-   a CSV. Check the per-race entry counts afterwards; a whole distance imported
-   against the wrong race is easy to catch there and painful to catch later.
+4. **Enter the runners.** One field each for bib, name, category, gender and
+   race. The bib fills in the next number, `Enter` adds the runner, and category
+   and race carry over — so a start list types straight through. Category and
+   gender suggest what you have already used, so `Veteran` does not become three
+   divisions. For a long list, paste or upload a CSV from the collapsed section.
+   Check the per-race entry counts afterwards: a whole distance imported against
+   the wrong race is easy to catch there and painful to catch later.
 5. **Upload artwork** and print bibs. Print *one* first and look at it.
 6. **On the morning**, open the checkpoint app on each volunteer phone while you
    still have wifi, pick the checkpoint, and let the clock sync finish.
@@ -207,20 +212,30 @@ centre. So:
 
 ---
 
-## Finisher certificates
+## Finisher share cards
 
-Generated after the race from the real results, so they carry the finish time,
-placings and splits — things a bib printed the night before cannot.
+Generated after the race from the real results, so they carry the finish time
+and placings — things a bib printed the night before cannot.
 
-Runners find themselves at `/certificate.html` **by name**, not by bib. Anyone
-coming back a few weeks later has long since binned the bib. One search box
-matches either. Non-finishers stay listed with the reason (`did not finish`,
-`still running`), so searching your own name never returns an unexplained blank.
+The output is a **1080 × 1350 image**, sized for a phone screen rather than a
+sheet of paper, because this ends up in an Instagram story or a WhatsApp thread.
+The finish time is by far the largest thing on it, then the runner's name, then
+the event. Bib and average pace sit small in a corner with a QR back to the
+results.
 
-The certificate prints as a single A4 page; "Save as PDF" gives a framing-quality
-copy.
+A **rank badge appears only when the placing is worth sharing** — top three, and
+never in the bottom half of the field, so "3rd of 4" shows nothing. Splits and
+the verification URL are deliberately absent; they stay on the results page.
 
----
+Runners can **add their own photo**. It is read in the browser and drawn
+straight into the card — never uploaded, never stored, no endpoint for it.
+Reloading the page discards it. The card is designed to look complete without
+one.
+
+Runners find themselves at `/certificate.html` **by name**, not by bib — anyone
+coming back weeks later has binned the bib. The A4 certificate still prints, as
+a secondary button.
+
 
 ## How the timing stays trustworthy
 
@@ -278,23 +293,25 @@ seed.py             40-runner demo race
 
 ## API
 
-24 endpoints. Interactive docs at `/docs` while the server runs. The ones you
-will actually touch:
+29 routes, 19 of which need the admin token when `ADMIN_TOKEN` is set (marked
+🔒). Interactive docs at `/docs` while the server runs. The ones you will
+actually touch:
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/api/time` | Clock reference for capture devices |
-| `POST` | `/api/events` | Create an event |
-| `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
-| `POST` | `/api/events/{code}/races` | One per distance |
-| `POST` | `/api/events/{code}/checkpoints` | One per timing point |
-| `POST` | `/api/events/{code}/participants` | JSON list |
-| `POST` | `/api/events/{code}/participants/csv` | `bib, name, category, gender, race` |
-| `POST` | `/api/events/{code}/artwork` | Multipart image upload |
-| `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent |
-| `GET` | `/api/events/{code}/reads` | Raw audit log |
-| `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
-| `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
+| | Method | Path | Notes |
+|---|---|---|---|
+| | `GET` | `/api/time` | Clock reference for capture devices |
+| 🔒 | `POST` | `/api/events` | Create an event |
+| 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
+| 🔒 | `POST` | `/api/events/{code}/races` | One per distance |
+| 🔒 | `POST` | `/api/events/{code}/checkpoints` | One per timing point |
+| 🔒 | `POST` | `/api/events/{code}/participants` | JSON list |
+| 🔒 | `POST` | `/api/events/{code}/participants/csv` | `bib, name, category, gender, race` |
+| 🔒 | `DELETE` | `/api/participants/{id}` | Remove a runner; their reads are kept |
+| 🔒 | `POST` | `/api/events/{code}/artwork` | Multipart image upload |
+| | `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent — **public on purpose** |
+| 🔒 | `GET` | `/api/events/{code}/reads` | Raw audit log |
+| 🔒 | `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
+| | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
 
 Full table in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md#6-api-reference).
 
@@ -308,12 +325,13 @@ below issues a certificate automatically.
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./racetime.db` | **Required in production.** Postgres URL |
+| `ADMIN_TOKEN` | *(unset)* | **Set before going public.** Unset = every endpoint open |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
-> **Read this before deploying anywhere public.** Every endpoint is
-> unauthenticated. Anyone who finds the URL can create events, edit start lists,
-> void reads and delete races. Put authentication in front of `/admin.html` and
-> the write endpoints first, or keep the deployment private.
+> **Set `ADMIN_TOKEN` before deploying anywhere public.** Without it every
+> endpoint stays open and anyone who finds the URL can create events, edit start
+> lists and delete races. With it, the 19 endpoints that change a race require
+> the token, while results, certificates and checkpoint scanning stay public.
 
 ### Vercel
 
@@ -392,22 +410,40 @@ Learned the hard way by everyone who has ever timed a race:
 
 ## Security
 
-**Every endpoint is currently unauthenticated.** Anyone who can reach the server
-can create events, alter start lists and void reads. That is fine on a trusted
-LAN and **not fine on the public internet** — put authentication in front of
-`/admin.html` and the write endpoints before exposing it.
+Set **`ADMIN_TOKEN`** to a long random value and the API splits in two.
 
-What is handled:
+**Requires the token** (19 endpoints, `401` without it): listing all events,
+creating an event, firing the gun, artwork, branding, every race / checkpoint /
+participant write, marking DNF, the raw reads log, and voiding a read.
+
+**Stays public:** a single event by code, its races, checkpoints, participants,
+results and artwork — plus **posting reads**.
+
+That last one is deliberate. The volunteers' capture screen and the public
+results page are static files served to anyone, so neither can hold a secret.
+Reads are append-only and every one can be voided, so the worst an anonymous
+poster manages is noise a race director clears from the audit screen — not data
+loss — and it buys a capture app that works on any phone with no setup.
+
+In Race admin a `locked` / `unlocked` pill appears in the masthead. Click it,
+paste the token once, and it is remembered in this browser. It is checked
+before being stored, so a typo is caught immediately, and if the server rejects
+it later the app asks again and replays what you were doing.
+
+**Leave `ADMIN_TOKEN` unset and everything is open** — deliberate, so a laptop
+needs no setup. The server says so loudly at startup.
+
+Also handled:
 
 - Uploads are validated by **magic bytes**, not the `Content-Type` header, which
   any client can forge. SVG is refused to avoid stored XSS.
-- Stored filenames are generated server-side; a client-supplied filename is never
-  used, closing the path-traversal hole.
+- Stored filenames are generated server-side, closing the path-traversal hole.
 - Runner and event names are HTML-escaped everywhere they are rendered.
-- Results and certificates are **public by design** — anyone with the event code
-  can look up any runner.
+- The token is compared with `secrets.compare_digest`, so it cannot be guessed a
+  character at a time by timing responses.
+- Results and finisher cards are **public by design** — anyone with the event
+  code can look up any runner.
 
----
 
 ## Not built yet
 
@@ -429,6 +465,11 @@ so all are additive.
 | Deploy crashes with "DATABASE_URL is not set" | Correct behaviour on a serverless host. Provision Postgres and set the variable. |
 | Artwork vanished after deploying | You are on a build from before artwork moved into the database. Re-upload it once. |
 | Two checkpoints both named "Finish" rejected | Names are unique per event. Use `5K Finish` and `10K Finish`. |
+| `409` on a checkpoint's order number | That sequence is already used in the same race. The message names the checkpoint holding it. |
+| Everything returns `401` | `ADMIN_TOKEN` is set and this browser has not been unlocked. Click the `locked` pill in Race admin. |
+| `ModuleNotFoundError: No module named 'psycopg'` | Your `DATABASE_URL` uses the psycopg 3 scheme. Both drivers ship now; reinstall from `requirements.txt`. |
+| A page loads but nothing renders | Almost always a stale cached file. Hard-refresh once (`Ctrl+Shift+R`); the server now sends `no-cache` so it should not recur. |
+| Results are empty though scans are arriving | The gun has not been fired, so there is nothing to measure elapsed time from. |
 
 ---
 
