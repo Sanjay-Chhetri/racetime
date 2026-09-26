@@ -1272,3 +1272,133 @@ button.quiet.danger:hover { color: var(--stop); background: rgba(221, 75, 57, .1
   font-variant-numeric: tabular-nums;
   color: var(--muted); font-size: .95rem;
 }
+
+/* ---------- the landing page ----------
+
+   The audience is a runner or someone watching one. It used to be five
+   identical panels in the order the screens were built, with "Race admin"
+   above both of the things a runner came for. */
+
+body.home { padding-bottom: 0; }
+
+.sitebar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3) 0 var(--s4);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--s6);
+}
+.brand { display: inline-flex; align-items: center; gap: var(--s2); text-decoration: none; }
+.brandmark {
+  display: grid; place-items: center;
+  width: 1.9rem; height: 1.9rem; border-radius: var(--r2);
+  background: var(--paint); color: var(--ink);
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.25rem;
+}
+.brandname {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 1.35rem; color: var(--paper); letter-spacing: .01em;
+}
+.sitenav { display: flex; align-items: center; gap: var(--s4); }
+.sitenav a { color: var(--muted); text-decoration: none; font-size: .92rem; }
+.sitenav a:hover { color: var(--paper); }
+.sitenav .linkbtn { font-size: .92rem; }
+
+.hero { margin-bottom: var(--s6); }
+
+/* Side by side once there is room. Stacked, the picker sat under a headline
+   with half the page empty beside it. */
+@media (min-width: 900px) {
+  .hero {
+    display: grid; gap: var(--s6);
+    grid-template-columns: 1fr minmax(20rem, 26rem);
+    align-items: center;
+  }
+  .hero-copy .lede { margin-bottom: 0; }
+  .pickrace { max-width: none; }
+}
+.hero h1 {
+  font-size: clamp(2.1rem, 6vw, 3.4rem);
+  line-height: 1.02; margin: 0 0 var(--s3);
+}
+.lede {
+  font-size: 1.08rem; color: var(--muted);
+  max-width: 46ch; margin: 0 0 var(--s5);
+}
+
+/* The one thing the page asks of a visitor. */
+.pickrace {
+  padding: var(--s5);
+  background: var(--ink-2);
+  border: 1px solid var(--rule); border-left: 3px solid var(--paint);
+  border-radius: var(--r3);
+  max-width: 34rem;
+}
+.pickrace label { margin-top: 0; }
+/* A yellow fill at half opacity turns olive against the dark panel, which
+   reads as a broken button rather than a waiting one. */
+.pickrace button:disabled {
+  opacity: 1;
+  background: var(--ink-3); color: var(--muted);
+  box-shadow: none;
+}
+.pickgo { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+.pickgo button { flex: 1 1 10rem; }
+.pickrace .note { margin: var(--s3) 0 0; min-height: 1.1rem; }
+
+.recent { margin-bottom: var(--s6); }
+.recent h2 { font-size: 1.1rem; margin: 0 0 var(--s3); }
+.recentlist { display: grid; gap: var(--s2);
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.recentcard {
+  display: block; padding: var(--s3) var(--s4);
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r2); text-decoration: none;
+}
+.recentcard:hover { border-color: var(--paint); }
+.recentcard .rn { display: block; color: var(--paper); font-weight: 600; }
+.recentcard .rc { display: block; font-size: .8rem; color: var(--muted); margin-top: 2px; }
+
+.valueprops {
+  display: grid; gap: var(--s4); margin-bottom: var(--s6);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+.vp h3 {
+  margin: 0 0 var(--s2); font-size: 1.05rem; color: var(--paper);
+  padding-top: var(--s3); border-top: 2px solid var(--paint);
+}
+.vp p { margin: 0; font-size: .93rem; }
+
+.organiser {
+  padding: var(--s5); margin-bottom: var(--s6);
+  background: var(--ink-2); border: 1px solid var(--rule); border-radius: var(--r3);
+}
+.orgtop {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s4); margin-bottom: var(--s4);
+}
+.orgtop h2 { margin: 0; font-size: 1.15rem; }
+.orgcards {
+  display: grid; gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+.orgcard {
+  display: block; padding: var(--s4);
+  background: var(--ink); border: 1px solid var(--rule);
+  border-radius: var(--r2); text-decoration: none;
+}
+.orgcard:hover { border-color: var(--paint); }
+.orgcard h3 { margin: 0 0 var(--s2); font-size: 1rem; color: var(--paper); }
+.orgcard p { margin: 0; font-size: .88rem; }
+
+.sitefoot {
+  padding: var(--s5) 0 var(--s6);
+  border-top: 1px solid var(--rule);
+}
+.sitefoot p { margin: 0; font-size: .85rem; }
+
+@media (max-width: 560px) {
+  .sitebar { margin-bottom: var(--s5); }
+  .pickrace { padding: var(--s4); }
+  .pickgo button { flex: 1 1 100%; }
+}

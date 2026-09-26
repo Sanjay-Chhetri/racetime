@@ -276,6 +276,33 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   last checkpoint for everyone, which on a finished race is the word "Finish" on
   every row.
 
+### FR-7b — Landing page (`/`)
+
+- **FR-7b.1** The page is aimed at **runners and spectators**, who are almost
+  everyone who opens it. It previously listed five identical panels in the order
+  the screens were built, with *Race admin* above both of the things a runner
+  came for.
+- **FR-7b.2** One control carries the page: pick a race, then **See live
+  results** or **Get my certificate**. Both buttons stay disabled until a race
+  is chosen. A server holding a single race preselects it.
+- **FR-7b.3** The picker is filled from `GET /api/events/public`, so it works
+  whether or not the server is gated.
+- **FR-7b.4** The last three races opened are offered again on return. This is
+  a per-browser convenience in `localStorage`; every read and write is guarded
+  and the page renders correctly without it.
+- **FR-7b.5** **Organiser screens are hidden behind a sign-in.** Race admin,
+  Checkpoint and the run-through appear only once an organiser signs in, and
+  the state persists.
+- **FR-7b.6** Sign-in uses the **same token and storage key as the admin
+  screens**, so signing in here carries over to them.
+- **FR-7b.7** When `ADMIN_TOKEN` is **unset**, there is nothing to verify. The
+  tools still start hidden -- that keeps the page aimed at runners -- but on
+  opening them the page **states plainly that no token is set and the screens
+  are reachable by anyone who knows their address**. It never implies a lock
+  that does not exist.
+- **FR-7b.8** A wrong token is refused and re-prompted; it never reveals the
+  organiser section.
+
 ### FR-7a — Race admin layout (`/admin.html#<code>[/<section>]`)
 
 - **FR-7a.1** The event's sections are **tabs**: Runners, Races, Checkpoints,

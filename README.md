@@ -27,6 +27,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Trying it on a phone](#trying-it-on-a-phone)
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
+- [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
 - [Race admin](#race-admin)
 - [Bibs and artwork](#bibs-and-artwork)
@@ -182,6 +183,18 @@ Two naming rules follow from how the app works:
   and nothing else. Separate number series per race (`1–199`, `500+`) are fine.
 
 ---
+
+## The landing page
+
+`/` is written for runners and the people watching them. Pick a race, then
+**See live results** or **Get my certificate** — that is the whole page, plus
+the last few races you opened.
+
+Organiser screens are behind **Organiser sign-in** in the corner, using the same
+token as Race admin, so signing in once covers both. If `ADMIN_TOKEN` is not set
+on your server there is nothing to check: the tools still stay out of a runner's
+way, but the page says plainly that they are reachable by anyone with the
+address rather than pretending to be locked.
 
 ## The results page
 
