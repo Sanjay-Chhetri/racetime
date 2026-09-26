@@ -260,8 +260,12 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   Share button.
 - **FR-7.8** Share uses the device's native share sheet where available and
   falls back to copying to the clipboard.
-- **FR-7.9** A **status header** states whether the race is `Live` (someone is
-  still on course), `Final` or `Not started`, with the date. The page is reached
+- **FR-7.9** A **status header** states whether the race is `Live`, `Final` or
+  `Not started`, with the date. It is `Final` only once **every entrant has
+  reached a terminal state** (finished or DNF) -- not merely when nobody is on
+  course, since a runner with no sightings at all counts as `not_started`, and a
+  race whose gun had fired but whose checkpoints had scanned nobody was
+  reporting itself finished. The page is reached
   by a shared link, often mid-race, and the name alone does not say whether the
   numbers are still moving.
 - **FR-7.10** A **scoreboard** of finishers, still running, did not finish and

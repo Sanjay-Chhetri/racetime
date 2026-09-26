@@ -91,11 +91,16 @@ function renderHead() {
   const done = n('finished');
   const started = !!data.event.start_time;
 
+  // A race is only final once every entrant has reached a terminal state.
+  // Testing "nobody on course" is not the same thing: a runner with no
+  // sightings at all counts as not_started, so a race whose gun has fired but
+  // whose first checkpoint has not scanned anyone yet read as "Final".
+  const settled = done + n('dnf');
   const pill = $('livePill');
   if (!started) {
     pill.className = 'livepill soon';
     pill.textContent = 'Not started';
-  } else if (running) {
+  } else if (settled < all.length) {
     pill.className = 'livepill live';
     pill.textContent = 'Live';
   } else {
@@ -110,9 +115,13 @@ function renderHead() {
 
   // Only the numbers that mean something right now: "0 on course" during a
   // race is news, after it is just noise.
+  const waiting = n('not_started');
   const cells = [
     { v: done, k: done === 1 ? 'finisher' : 'finishers' },
     running ? { v: running, k: 'still running' } : null,
+    // Worth stating only while the race is on: afterwards, anyone never seen
+    // is already covered by the finisher and DNF counts.
+    (waiting && settled < all.length) ? { v: waiting, k: 'not seen yet' } : null,
     n('dnf') ? { v: n('dnf'), k: 'did not finish' } : null,
     { v: all.length, k: 'entered' },
   ].filter(Boolean);
