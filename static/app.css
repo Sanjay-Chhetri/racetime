@@ -162,7 +162,7 @@ th {
 }
 td { padding: .5rem; border-bottom: 1px solid rgba(255,255,255,.06); }
 td.num, th.num { text-align: right; }
-tr.finished td.pos { color: var(--paint); font-weight: 600; }
+tr.finished td.pos { color: var(--muted); font-weight: 600; }
 
 .tag {
   display: inline-block; padding: .1rem .45rem; border-radius: 3px;
@@ -338,10 +338,18 @@ th.sortable[data-dir="desc"]::after { content: ' ▼'; opacity: .8; font-size: .
 
 /* The podium is the one thing people scan for, so it gets colour rather than
    just a number in the rank column. */
-tr.podium td.pos { font-weight: 700; }
+/* Only the first three carry colour. When every finisher was gold, the
+   podium was invisible -- the column just looked decorative. */
+tr.podium td.pos {
+  font-weight: 700; font-size: 1.08rem;
+  font-family: 'Barlow Condensed', sans-serif;
+}
 tr.podium.p1 td.pos { color: #ffd24a; }
 tr.podium.p2 td.pos { color: #cfd8e2; }
 tr.podium.p3 td.pos { color: #e2a06a; }
+tr.podium.p1 { background: linear-gradient(90deg, rgba(255,210,74,.10), transparent 42%); }
+tr.podium.p2 { background: linear-gradient(90deg, rgba(207,216,226,.08), transparent 42%); }
+tr.podium.p3 { background: linear-gradient(90deg, rgba(226,160,106,.08), transparent 42%); }
 
 /* Same weight as the certificate's finder list, at every breakpoint. */
 td[data-c="bib"] {
@@ -1119,3 +1127,148 @@ tr.racedivider .n {
   font-size: .8rem; color: var(--muted); margin-left: .6rem;
 }
 tr.racedivider .n { float: right; }
+
+/* ---------- race admin: tabs ----------
+
+   The admin page was one 16,000px scroll of six panels. Runners -- the screen
+   actually used on the morning -- sat below three that are set once and never
+   touched again. One panel at a time, with the section in the address bar. */
+
+/* Data tables earn more width than prose does. */
+.wide { max-width: 1040px; }
+
+.eventbar {
+  display: flex; flex-wrap: wrap; gap: var(--s4);
+  align-items: center; justify-content: space-between;
+}
+.eventbar-id { min-width: 0; }
+.eventbar-id h2 { margin: 0 0 var(--s1); }
+.eventbar-id p { margin: 0; }
+.eventbar-do { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.eventbar-do button { flex: 0 0 auto; width: auto; }
+
+.tabs {
+  display: flex; gap: var(--s1);
+  margin: var(--s5) 0 calc(-1px - var(--s1));
+  overflow-x: auto;                    /* a phone scrolls them sideways */
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  flex: 0 0 auto; width: auto;
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  border-radius: var(--r2) var(--r2) 0 0;
+  color: var(--muted); font-weight: 600; font-size: .95rem;
+  white-space: nowrap; cursor: pointer;
+}
+.tab:hover { color: var(--paper); background: var(--rule-soft); }
+.tab.on {
+  color: var(--ink); background: var(--paint);
+  border-color: var(--paint);
+}
+.tab-n {
+  font-size: .8rem; font-variant-numeric: tabular-nums;
+  padding: 0 var(--s2); border-radius: var(--r-pill);
+  background: var(--rule); color: var(--muted);
+}
+.tab-n:empty { display: none; }
+.tab.on .tab-n { background: rgba(0, 0, 0, .22); color: var(--ink); }
+
+/* The open panel joins the tab strip rather than floating below it. */
+.tabpanel { border-top-left-radius: 0; }
+.tabpanel[hidden] { display: none; }
+
+/* A destructive action should be findable, not the loudest thing in the row.
+   Every table line was led by a full-width outlined red button. */
+button.quiet {
+  flex: 0 0 auto; width: auto;
+  padding: var(--s1) var(--s3);
+  font-size: .85rem; font-weight: 600;
+  background: transparent; border-color: transparent;
+  color: var(--muted);
+}
+button.quiet:hover { border-color: currentColor; }
+button.quiet.danger { color: var(--muted); }
+button.quiet.danger:hover { color: var(--stop); background: rgba(221, 75, 57, .1); }
+
+@media (max-width: 560px) {
+  .eventbar { align-items: flex-start; }
+  .eventbar-do { width: 100%; }
+  .eventbar-do button { flex: 1 1 8rem; }
+  /* Bleed the strip to the screen edges so the last tab is not clipped mid-word.
+     The offset must match the body padding, which is --s3 at this width, not
+     --pad -- using --pad overshot by 4px and the whole page scrolled sideways. */
+  .tabs { margin-left: calc(var(--s3) * -1); margin-right: calc(var(--s3) * -1);
+          padding: 0 var(--s3); }
+}
+
+/* ---------- results: is this race still on? ----------
+
+   The page arrives by a shared link, often mid-race. Before any placing, a
+   spectator needs to know whether these numbers are still moving. */
+
+.racehead { margin: 0 0 var(--s4); }
+.racehead-top {
+  display: flex; align-items: center; gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.livepill {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-pill);
+  font-size: .78rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.livepill::before {
+  content: ''; width: .5rem; height: .5rem; border-radius: 50%;
+  background: currentColor;
+}
+.livepill.live { color: #7ee2b0; background: rgba(52, 160, 107, .16); }
+.livepill.live::before { animation: pulse 1.8s ease-in-out infinite; }
+.livepill.done { color: var(--muted); background: var(--rule-soft); }
+.livepill.soon { color: #f0cf6a; background: rgba(242, 197, 0, .13); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.72); }
+}
+
+.racedate { color: var(--muted); font-size: .88rem; }
+
+.scoreboard {
+  display: grid; gap: var(--s2);
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+}
+.score {
+  padding: var(--s3) var(--s4);
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r2);
+}
+.score .v {
+  display: block;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 1.7rem; line-height: 1;
+  color: var(--paper); font-variant-numeric: tabular-nums;
+}
+.score .k {
+  display: block; margin-top: var(--s1);
+  font-size: .78rem; color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .scoreboard { grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr)); }
+  .score { padding: var(--s2) var(--s3); }
+  .score .v { font-size: 1.4rem; }
+}
+
+/* The gap behind the winner. Quieter than the finish time it sits beside --
+   it is context for that number, not a second headline. */
+.gap {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted); font-size: .95rem;
+}

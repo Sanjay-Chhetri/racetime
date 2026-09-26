@@ -1,8 +1,8 @@
 import QRCode from '/vendor/qrcode.esm.js';
 // Runner names and race names reach the bib and the certificate as markup, and
 // they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
-import { esc, ok, fail, confirmDialog, promptDialog, withBusy, fitImageForUpload }
-  from '/js/ui.js';
+import { esc, ok, fail, confirmDialog, promptDialog, withBusy, fitImageForUpload,
+         skeletonRows, emptyState } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
 let ev = null;
@@ -180,15 +180,81 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
   } catch (err) { $('err').textContent = err.message; }
 });
 
-async function load(code) {
+/* ---------- tabs ----------
+
+   Everything used to be one page: six panels, 16,000px of scroll, with Runners
+   -- the thing touched most -- below three sections that are set once and
+   forgotten. One panel shows at a time now, and the open tab lives in the
+   address bar after the code (#siliguri10k/runners) so a reload comes back to
+   where you were and a link can point at a section. */
+
+const TABS = ['runners', 'races', 'checkpoints', 'artwork', 'reads'];
+let tab = 'runners';
+
+function showTab(name, { push = true } = {}) {
+  if (!TABS.includes(name)) name = TABS[0];
+  tab = name;
+  document.querySelectorAll('.tab').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;       // one stop in the tab order, arrows do the rest
+  });
+  document.querySelectorAll('.tabpanel').forEach(s => {
+    s.hidden = s.dataset.tab !== name;
+  });
+  if (push && ev) location.hash = `${ev.code}/${name}`;
+
+  // Reads are fetched only when asked for. Loading a few thousand rows on
+  // every open made the page slow to appear for something rarely looked at.
+  if (name === 'reads' && !readsLoaded) loadReads();
+  // The bib preview measures its container, which is zero-wide while hidden.
+  if (name === 'artwork') renderPreview();
+}
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.onclick = () => showTab(btn.dataset.tab);
+});
+
+$('tabs').addEventListener('keydown', e => {
+  const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' };
+  if (!(e.key in keys)) return;
+  e.preventDefault();
+  const step = keys[e.key];
+  const i = TABS.indexOf(tab);
+  const next = step === 'first' ? 0
+    : step === 'last' ? TABS.length - 1
+    : (i + step + TABS.length) % TABS.length;
+  showTab(TABS[next]);
+  $('tab-' + TABS[next]).focus();
+});
+
+/** "siliguri10k/runners" -> { code, tab } */
+function parseHash() {
+  const [code, wanted] = location.hash.slice(1).split('/');
+  return { code, tab: TABS.includes(wanted) ? wanted : null };
+}
+
+$('switchEvent').onclick = () => {
+  ev = null;
+  $('event').hidden = true;
+  $('chooser').hidden = false;
+  location.hash = '';
+  $('pickEvent').value = '';
+  $('pickEvent').focus();
+};
+
+async function load(code, wantTab) {
   if (!code) return;
   $('err').textContent = '';
   try {
     ev = await api('/events/' + code);
   } catch (e) { $('err').textContent = e.message; return; }
-  location.hash = code;
-  $('code').value = code;
   if ($('pickEvent').options.length > 1) $('pickEvent').value = code;
+  $('code').value = code;
+  // With a race open the chooser is just a lid on the page; "switch race" in
+  // the event bar brings it back.
+  $('chooser').hidden = true;
   $('event').hidden = false;
   $('evName').textContent = ev.name;
   $('startTime').textContent = fmtTime(ev.start_time);
@@ -202,8 +268,9 @@ async function load(code) {
   renderRaces();
   renderCheckpoints();
   loadRoster();
-  loadReads();
-  renderPreview();
+  readsLoaded = false;
+  $('nReads').textContent = '';
+  showTab(wantTab || tab);
 }
 
 /* ---------- start ---------- */
@@ -234,6 +301,7 @@ const raceName = id => {
 };
 
 function renderRaces() {
+  $('nRaces').textContent = ev.races.length || '';
   const tb = $('raceList');
   tb.innerHTML = '';
   if (!ev.races.length) {
@@ -247,7 +315,7 @@ function renderRaces() {
         `<td class="num">${r.distance_km} km</td>` +
         `<td class="note">${r.start_time ? 'starts ' + fmtTime(r.start_time) : 'event gun'}</td>` +
         `<td class="num" data-count="${r.id}">${entered || ''}</td>` +
-        `<td class="num"><button data-race="${r.id}" class="danger">Remove</button></td>`;
+        `<td class="num"><button data-race="${r.id}" class="quiet danger">Remove</button></td>`;
       tb.appendChild(tr);
     });
     tb.querySelectorAll('button[data-race]').forEach(b => {
@@ -296,6 +364,7 @@ $('rcAdd').onclick = e => withBusy(e.currentTarget, async () => {
 /* ---------- checkpoints ---------- */
 
 function renderCheckpoints() {
+  $('nCheckpoints').textContent = ev.checkpoints.length || '';
   const tb = $('cpList');
   tb.innerHTML = '';
   if (!ev.checkpoints.length) {
@@ -310,7 +379,7 @@ function renderCheckpoints() {
       `${many && raceName(c.race_id) ? ` <span class="tag">${esc(raceName(c.race_id))}</span>` : ''}</td>` +
       `<td class="num">${c.distance_km} km</td>` +
       `<td><span class="tag ${c.kind === 'finish' ? 'go' : ''}">${c.kind}</span></td>` +
-      `<td class="num"><button data-cp="${c.id}" class="danger">Remove</button></td>`;
+      `<td class="num"><button data-cp="${c.id}" class="quiet danger">Remove</button></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll('button[data-cp]').forEach(b => {
@@ -373,6 +442,7 @@ let roster = [];
 
 async function loadRoster() {
   roster = await api(`/events/${ev.code}/participants`);
+  $('nRunners').textContent = roster.length || '';
   $('rosterCount').textContent = roster.length
     ? `${roster.length} runner${roster.length === 1 ? '' : 's'} entered.`
     : 'No runners yet.';
@@ -423,7 +493,7 @@ function renderRoster() {
       `<td>${p.category ? esc(p.category) : '<span class="note">—</span>'}</td>` +
       `<td>${p.gender ? esc(p.gender) : '<span class="note">—</span>'}</td>` +
       `<td>${many ? esc(raceName(p.race_id) || '—') : '<span class="note">—</span>'}</td>` +
-      `<td class="num"><button data-del="${p.id}" class="danger">Remove</button></td>`;
+      `<td class="num"><button data-del="${p.id}" class="quiet danger">Remove</button></td>`;
     tb.appendChild(tr);
   }
   tb.querySelectorAll('button[data-del]').forEach(b => {
@@ -712,30 +782,79 @@ $('printBibs').onclick = e => withBusy(e.currentTarget, async () => {
   window.print();
 });
 
-/* ---------- audit ---------- */
+/* ---------- audit ----------
+
+   Two hundred rows rendered at once was 11,000px of table -- most of the old
+   page's height, for a screen that is only opened when something looks wrong.
+   The rows are fetched once per race and drawn a page at a time. */
+
+const READ_PAGE = 50;
+let readRows = [];
+let readsShown = 0;
+let readsLoaded = false;
 
 async function loadReads() {
-  const reads = await api(`/events/${ev.code}/reads?limit=200`);
   const tb = $('readList');
-  tb.innerHTML = '';
-  if (!reads.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="empty">Nothing recorded yet.</td></tr>';
+  tb.innerHTML = skeletonRows(6, 6);
+  $('moreReads').hidden = true;
+  try {
+    readRows = await api(`/events/${ev.code}/reads?limit=500`);
+  } catch (e) {
+    tb.innerHTML = emptyState(6, 'Could not load the reads', e.message);
     return;
   }
-  reads.forEach(r => {
+  readsLoaded = true;
+  $('nReads').textContent = readRows.length >= 500 ? '500+' : readRows.length;
+  drawReads();
+}
+
+function visibleReads() {
+  const wanted = $('readFilter').value.trim();
+  return wanted ? readRows.filter(r => String(r.bib) === wanted) : readRows;
+}
+
+function drawReads(reset = true) {
+  const rows = visibleReads();
+  if (reset) readsShown = 0;
+  readsShown = Math.min(rows.length, readsShown + READ_PAGE);
+
+  const tb = $('readList');
+  if (reset) tb.innerHTML = '';
+  if (!rows.length) {
+    tb.innerHTML = $('readFilter').value.trim()
+      ? emptyState(6, 'No sightings for that bib',
+                   'This covers the newest 500 reads of the race.')
+      : emptyState(6, 'Nothing recorded yet',
+                   'Scans from the checkpoint screens appear here.');
+    $('readCount').textContent = '';
+    $('moreReads').hidden = true;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  rows.slice(reset ? 0 : readsShown - READ_PAGE, readsShown).forEach(r => {
     const tr = document.createElement('tr');
     const drift = Math.abs(r.clock_offset_ms) > 2000
       ? `<span class="tag wait">${(r.clock_offset_ms / 1000).toFixed(1)}s</span>` : '';
     tr.innerHTML =
-      `<td class="num">${r.bib}</td><td>${r.checkpoint}</td>` +
+      `<td class="num">${esc(r.bib)}</td><td>${esc(r.checkpoint)}</td>` +
       `<td class="num">${new Date(r.observed_at).toLocaleTimeString()}</td>` +
-      `<td><span class="tag">${r.source}</span></td><td>${drift}</td>` +
+      `<td><span class="tag">${esc(r.source)}</span></td><td>${drift}</td>` +
       `<td class="num">${r.voided
         ? '<span class="tag stop">voided</span>'
-        : `<button data-void="${r.read_id}" class="danger">Void</button>`}</td>`;
-    tb.appendChild(tr);
+        : `<button data-void="${esc(r.read_id)}" class="quiet danger">Void</button>`}</td>`;
+    frag.appendChild(tr);
   });
-  tb.querySelectorAll('button[data-void]').forEach(b => {
+  tb.appendChild(frag);
+
+  $('readCount').textContent =
+    `Showing ${readsShown} of ${rows.length}` +
+    (readRows.length >= 500 ? ' (newest 500 of the race)' : '');
+  $('moreReads').hidden = readsShown >= rows.length;
+
+  // Bind only the rows just added -- "Show more" appends rather than redraws.
+  tb.querySelectorAll('button[data-void]:not([data-bound])').forEach(b => {
+    b.dataset.bound = '1';
     b.onclick = async () => {
       await api(`/reads/${b.dataset.void}/void`, { method: 'POST' });
       loadReads();
@@ -743,8 +862,19 @@ async function loadReads() {
   });
 }
 
-$('refreshReads').onclick = loadReads;
+$('moreReads').onclick = () => drawReads(false);
+$('readFilter').addEventListener('input', () => drawReads());
+$('refreshReads').onclick = e => withBusy(e.currentTarget, loadReads);
 
 // Fill the picker on arrival, and open whatever the address bar names.
-loadEventPicker(location.hash.slice(1));
-if (location.hash.slice(1)) load(location.hash.slice(1));
+const at = parseHash();
+loadEventPicker(at.code);
+if (at.code) load(at.code, at.tab);
+
+// Back and forward should move between tabs, not silently do nothing.
+window.addEventListener('hashchange', () => {
+  const now = parseHash();
+  if (!now.code) return;
+  if (!ev || ev.code !== now.code) { load(now.code, now.tab); return; }
+  if (now.tab && now.tab !== tab) showTab(now.tab, { push: false });
+});

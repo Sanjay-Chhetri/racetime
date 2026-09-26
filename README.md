@@ -27,6 +27,8 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Trying it on a phone](#trying-it-on-a-phone)
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
+- [The results page](#the-results-page)
+- [Race admin](#race-admin)
 - [Bibs and artwork](#bibs-and-artwork)
 - [Finisher share cards](#finisher-share-cards)
 - [How the timing stays trustworthy](#how-the-timing-stays-trustworthy)
@@ -51,6 +53,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 | **Category rankings** | Overall, category and gender placings — *"1st of 19 in Open"* — each computed inside its own race. |
 | **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
 | **Finisher share cards** | A 1080 × 1350 image built for Instagram and WhatsApp, on your artwork. Runners search by name and can add their own photo. |
+| **Live leaderboard** | Says whether the race is still on, how many are home and how far each runner is behind the winner. Filter by race, status, category or gender. |
 | **Admin gate** | One shared token protects every write. Results and scanning stay public. |
 | **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
 
@@ -179,6 +182,31 @@ Two naming rules follow from how the app works:
   and nothing else. Separate number series per race (`1–199`, `500+`) are fine.
 
 ---
+
+## The results page
+
+`/results.html#<code>` is the link you share. It opens with a status line —
+**Live** while anyone is still on the course, **Final** once they are all in —
+the date, and a scoreboard of finishers, runners still out, DNFs and entries.
+
+The table ranks each race separately, colours the podium, and shows every other
+finisher's gap behind their race winner. Filter chips narrow by race, status,
+category and gender, each with a live count. Search matches name or bib as you
+type. Tapping a runner opens their splits, their placings (*"1st of 19 in
+Open"*), a link to their certificate and a Share button.
+
+It polls every ten seconds and keeps showing the last known results if the
+connection drops.
+
+## Race admin
+
+`/admin.html` opens on your list of races. Pick one and its sections appear as
+tabs — **Runners, Races, Checkpoints, Artwork, Reads** — one at a time, with
+counts on the tabs and the open section in the address bar, so a reload comes
+back where you were and you can link someone straight to a section.
+
+Reads load only when you open them, fifty rows at a time, with a bib filter for
+chasing down a single runner's sightings.
 
 ## Bibs and artwork
 

@@ -234,15 +234,19 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   slowly and a poll survives a flaky connection with no reconnection logic.
 - **FR-7.2** Live search by name **or** bib, filtering as the user types, with
   the matched characters highlighted.
-- **FR-7.3** Filter chips with live counts for **race**, **status** and
-  **category**. Race chips appear only when the event has more than one race;
-  category chips only when more than one category exists. Status chips appear
-  only for statuses that actually occur.
-- **FR-7.4** Selecting a race rescopes the category chips and counts to that
-  race, and resets the category filter.
+- **FR-7.3** Filter chips with live counts for **race**, **status**,
+  **category** and **gender**. Race chips appear only when the event has more
+  than one race; category and gender chips only when more than one value
+  exists. Status chips appear only for statuses that actually occur.
+- **FR-7.4** Selecting a race rescopes the category and gender chips and counts
+  to that race, and resets both filters, since a value present in one race may
+  not exist in another.
 - **FR-7.5** Sort by rank, bib, name or finish time, ascending or descending.
   **Runners with no finish time always sort last, in both directions.**
-- **FR-7.6** The top three in each race are colour-coded.
+- **FR-7.6** The top three in each race are colour-coded, **and only they are**.
+  Every finisher's rank used to be painted in the accent colour, which left the
+  podium shades indistinguishable from the other thirty rows; ranks from fourth
+  down are muted.
 - **FR-7.6a** When more than one race is shown at once, the table is **banded by
   race**, each band carrying the race name, distance and entry count. Ranks
   restart at 1 inside each band because each race is placed separately; without
@@ -256,6 +260,40 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   Share button.
 - **FR-7.8** Share uses the device's native share sheet where available and
   falls back to copying to the clipboard.
+- **FR-7.9** A **status header** states whether the race is `Live` (someone is
+  still on course), `Final` or `Not started`, with the date. The page is reached
+  by a shared link, often mid-race, and the name alone does not say whether the
+  numbers are still moving.
+- **FR-7.10** A **scoreboard** of finishers, still running, did not finish and
+  entered. Counts that do not apply are omitted rather than shown as zero.
+- **FR-7.11** The last column shows, for a finisher, the **gap behind the
+  winner of their race** (`+1:25`, or `winner`); for a runner still out, the
+  last checkpoint they passed; otherwise their status. It previously printed the
+  last checkpoint for everyone, which on a finished race is the word "Finish" on
+  every row.
+
+### FR-7a — Race admin layout (`/admin.html#<code>[/<section>]`)
+
+- **FR-7a.1** The event's sections are **tabs**: Runners, Races, Checkpoints,
+  Artwork, Reads. One panel renders at a time. As one page it ran to 16,000px,
+  with Runners -- the screen used on the morning -- below three sections that are
+  set once and never revisited.
+- **FR-7a.2** The open section is part of the address (`#siliguri10k/runners`),
+  so a reload returns to it, back and forward move between sections, and a link
+  can point at one. An unrecognised section falls back to Runners.
+- **FR-7a.3** Tabs carry **counts** (runners, races, checkpoints, reads), so the
+  page says what is in it without being opened.
+- **FR-7a.4** Arrow keys move between tabs, Home and End jump to the ends, and
+  only the open tab is in the page's tab order.
+- **FR-7a.5** **Reads are fetched only when their tab is opened**, and drawn 50
+  rows at a time behind a "Show more", with a bib filter. Rendering all 200 at
+  once was most of the old page's height for a screen only opened when something
+  looks wrong.
+- **FR-7a.6** Opening a race **hides the chooser**; "switch race" in the event
+  bar brings it back.
+- **FR-7a.7** Destructive actions in a table row are **quiet** -- text weight,
+  no fill, colour only on hover. A full outlined red button per row made Remove
+  the most prominent thing on a roster of forty runners.
 
 ### FR-8 — Race artwork and printable bibs
 

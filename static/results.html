@@ -8,12 +8,22 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="wide">
 
 <div class="masthead">
   <h1 id="title">Results</h1>
   <span class="where clock" id="clock"></span>
 </div>
+
+<!-- A spectator arriving cold needs to know, before anything else, whether
+     this is still running and how far along it is. -->
+<header class="racehead" id="racehead" hidden>
+  <div class="racehead-top">
+    <span class="livepill" id="livePill"></span>
+    <span class="racedate" id="raceDate"></span>
+  </div>
+  <div class="scoreboard" id="scoreboard"></div>
+</header>
 
 <div class="row" style="margin-bottom:.7rem">
   <input id="find" placeholder="Find a runner by name or bib" autocomplete="off">
@@ -23,6 +33,7 @@
   <div class="chips" id="raceChips" role="group" aria-label="Filter by race" hidden></div>
   <div class="chips" id="statusChips" role="group" aria-label="Filter by status"></div>
   <div class="chips" id="catChips" role="group" aria-label="Filter by category"></div>
+  <div class="chips" id="genChips" role="group" aria-label="Filter by gender" hidden></div>
 </div>
 
 <div class="tally" id="tally"></div>
@@ -33,7 +44,7 @@
     <th class="num sortable" data-sort="bib">Bib</th>
     <th class="sortable" data-sort="name">Runner</th>
     <th class="num sortable" data-sort="time">Finish</th>
-    <th>Progress</th>
+    <th>Gap</th>
   </tr></thead>
   <tbody id="rows">
     <tr class="skel"><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td></tr>

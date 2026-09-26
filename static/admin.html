@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="wide">
 
 <div class="masthead noprint">
   <h1>Race admin</h1>
@@ -42,17 +42,35 @@
 </section>
 
 <div id="event" hidden>
-  <section class="panel noprint">
-    <h2 id="evName" style="margin-top:0"></h2>
-    <p class="note">Gun time: <span id="startTime" class="num">not started</span></p>
-    <div class="row">
+  <section class="panel noprint eventbar">
+    <div class="eventbar-id">
+      <h2 id="evName"></h2>
+      <p class="note">Gun time: <span id="startTime" class="num">not started</span>
+        &middot; <button id="switchEvent" class="linkbtn">switch race</button></p>
+    </div>
+    <div class="eventbar-do">
       <button id="startNow" class="primary">Start race now</button>
       <button id="openResults">Live results</button>
     </div>
   </section>
 
-  <section class="panel noprint">
-    <h2 style="margin-top:0">Races</h2>
+  <!-- One panel at a time. The page was 16,000px of scroll, and Runners sat
+       below three sections nobody touches once the race is set up. -->
+  <nav class="tabs noprint" id="tabs" role="tablist" aria-label="Race admin sections">
+    <button class="tab" role="tab" data-tab="runners" id="tab-runners"
+            aria-controls="panel-runners">Runners <span class="tab-n" id="nRunners"></span></button>
+    <button class="tab" role="tab" data-tab="races" id="tab-races"
+            aria-controls="panel-races">Races <span class="tab-n" id="nRaces"></span></button>
+    <button class="tab" role="tab" data-tab="checkpoints" id="tab-checkpoints"
+            aria-controls="panel-checkpoints">Checkpoints <span class="tab-n" id="nCheckpoints"></span></button>
+    <button class="tab" role="tab" data-tab="artwork" id="tab-artwork"
+            aria-controls="panel-artwork">Artwork</button>
+    <button class="tab" role="tab" data-tab="reads" id="tab-reads"
+            aria-controls="panel-reads">Reads <span class="tab-n" id="nReads"></span></button>
+  </nav>
+
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-races" data-tab="races" aria-labelledby="tab-races">
     <p class="note">One event can hold several distances &mdash; a 5K and a 10K on the same
     morning. Each race is ranked on its own, so nobody is placed against a field that ran
     a different distance. Leave the start time blank to use the event gun; set it for a
@@ -66,8 +84,8 @@
     </div>
   </section>
 
-  <section class="panel noprint">
-    <h2 style="margin-top:0">Checkpoints</h2>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-checkpoints" data-tab="checkpoints" aria-labelledby="tab-checkpoints">
     <p class="note">Sequence orders the columns in results. Each race needs exactly one finish.
     Checkpoint names must be unique across the whole event, so name them
     <code>5K Finish</code> and <code>10K Finish</code> rather than both <code>Finish</code>.</p>
@@ -89,8 +107,8 @@
     <p class="fieldErr" id="cpErr" hidden></p>
   </section>
 
-  <section class="panel noprint">
-    <h2 style="margin-top:0">Race artwork</h2>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-artwork" data-tab="artwork" aria-labelledby="tab-artwork">
     <p class="note">A wide banner image works best &mdash; it runs across the top
     of every bib and fills the finisher certificate. PNG, JPEG or WebP. A photo
     straight off a phone is fine: anything too large to upload is resized here in
@@ -172,8 +190,8 @@
     </div>
   </section>
 
-  <section class="panel noprint">
-    <h2 style="margin-top:0">Runners</h2>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-runners" data-tab="runners" aria-labelledby="tab-runners">
 
     <!-- One field per value. The old comma-separated box put whole names into
          the bib column whenever someone typed "1. Name" instead of "1, Name". -->
@@ -222,13 +240,23 @@
     </div>
   </section>
 
-  <section class="panel noprint">
-    <h2 style="margin-top:0">Raw reads</h2>
-    <p class="note">Every sighting the system has received, newest first. Voiding a read removes it from timing without deleting it.</p>
-    <button id="refreshReads">Reload</button>
-    <table style="margin-top:.6rem"><thead><tr>
-      <th>Bib</th><th>Checkpoint</th><th>Time</th><th>Via</th><th>Drift</th><th></th>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-reads" data-tab="reads" aria-labelledby="tab-reads">
+    <p class="note">Every sighting the system has received, newest first. Voiding
+    a read removes it from timing without deleting it.</p>
+    <div class="row">
+      <div><label for="readFilter">Find a bib</label>
+        <input id="readFilter" class="num" inputmode="numeric" placeholder="all bibs"></div>
+      <button id="refreshReads" class="narrow">Reload</button>
+    </div>
+    <p class="note" id="readCount" style="margin-top:.8rem"></p>
+    <table class="roster" style="margin-top:.4rem"><thead><tr>
+      <th class="num">Bib</th><th>Checkpoint</th><th class="num">Time</th>
+      <th>Via</th><th>Drift</th><th></th>
     </tr></thead><tbody id="readList"></tbody></table>
+    <div class="row" style="margin-top:.8rem">
+      <button id="moreReads" hidden>Show more</button>
+    </div>
   </section>
 
   <section id="bibSheet" hidden>

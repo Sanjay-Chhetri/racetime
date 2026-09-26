@@ -14,6 +14,7 @@ let open = new Set();
 let sort = { key: 'position', dir: 'asc' };
 let status = 'all';
 let category = 'all';
+let gender = 'all';
 let race = 'all';
 let offline = false;
 
@@ -59,6 +60,7 @@ async function poll() {
     if (data.detail) throw new Error(data.detail);
     $('title').textContent = data.event.name;
     document.title = `${data.event.name} · Results`;
+    renderHead();
     renderChips();
     render();
     offline = false;
@@ -74,6 +76,51 @@ async function poll() {
       fail('Lost contact with the timing server. Showing the last known results.');
     }
   }
+}
+
+/* ---------- the header ----------
+
+   Somebody who opens this from a WhatsApp link has no idea whether the race
+   finished an hour ago or is still on the road. The name alone does not say,
+   and the ticking clock beside it says even less. */
+
+function renderHead() {
+  const all = data.results;
+  const n = st => all.filter(r => r.status === st).length;
+  const running = n('on_course');
+  const done = n('finished');
+  const started = !!data.event.start_time;
+
+  const pill = $('livePill');
+  if (!started) {
+    pill.className = 'livepill soon';
+    pill.textContent = 'Not started';
+  } else if (running) {
+    pill.className = 'livepill live';
+    pill.textContent = 'Live';
+  } else {
+    pill.className = 'livepill done';
+    pill.textContent = 'Final';
+  }
+
+  $('raceDate').textContent = started
+    ? new Date(data.event.start_time).toLocaleDateString(undefined,
+        { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+
+  // Only the numbers that mean something right now: "0 on course" during a
+  // race is news, after it is just noise.
+  const cells = [
+    { v: done, k: done === 1 ? 'finisher' : 'finishers' },
+    running ? { v: running, k: 'still running' } : null,
+    n('dnf') ? { v: n('dnf'), k: 'did not finish' } : null,
+    { v: all.length, k: 'entered' },
+  ].filter(Boolean);
+
+  $('scoreboard').innerHTML = cells.map(c =>
+    `<div class="score"><span class="v">${c.v}</span><span class="k">${esc(c.k)}</span></div>`
+  ).join('');
+  $('racehead').hidden = false;
 }
 
 /* ---------- filters ---------- */
@@ -128,6 +175,20 @@ function renderChips() {
     $('catChips').innerHTML = '';
     $('catChips').hidden = true;
   }
+  // Gender is ranked in the payload and quoted as often as the category --
+  // "first woman home" is the line that goes in the local paper.
+  const gens = [...new Set(scoped.map(r => r.gender).filter(Boolean))].sort();
+  if (gens.length > 1) {
+    const genCount = g => scoped.filter(r => r.gender === g).length;
+    $('genChips').innerHTML =
+      chip('All', 'all', gender === 'all', counts.all) +
+      gens.map(g => chip(g, g, gender === g, genCount(g))).join('');
+    $('genChips').hidden = false;
+  } else {
+    $('genChips').innerHTML = '';
+    $('genChips').hidden = true;
+  }
+
   $('filters').hidden = false;
 }
 
@@ -135,8 +196,9 @@ $('raceChips').onclick = e => {
   const b = e.target.closest('.chip');
   if (!b) return;
   race = b.dataset.v;
-  // A category from the previous race may not exist in this one.
+  // A category or gender from the previous race may not exist in this one.
   category = 'all';
+  gender = 'all';
   renderChips(); render();
 };
 
@@ -151,6 +213,13 @@ $('catChips').onclick = e => {
   const b = e.target.closest('.chip');
   if (!b) return;
   category = b.dataset.v;
+  renderChips(); render();
+};
+
+$('genChips').onclick = e => {
+  const b = e.target.closest('.chip');
+  if (!b) return;
+  gender = b.dataset.v;
   renderChips(); render();
 };
 
@@ -186,12 +255,14 @@ function sorted(rows) {
 
 function render() {
   if (!data) return;
+  leaderCache = new Map();
   const q = $('find').value.trim().toLowerCase();
 
   const rows = sorted(data.results.filter(r =>
     (race === 'all' || String(r.race_id) === race) &&
     (status === 'all' || r.status === status) &&
     (category === 'all' || r.category === category) &&
+    (gender === 'all' || r.gender === gender) &&
     (!q || r.name.toLowerCase().includes(q) || String(r.bib).toLowerCase().includes(q))));
 
   for (const th of document.querySelectorAll('.sortable')) {
@@ -209,7 +280,8 @@ function render() {
   tb.innerHTML = '';
 
   if (!rows.length) {
-    const filtered = q || race !== 'all' || status !== 'all' || category !== 'all';
+    const filtered = q || race !== 'all' || status !== 'all'
+      || category !== 'all' || gender !== 'all';
     tb.innerHTML = filtered
       ? emptyState(5, 'No runners match', 'Try clearing a filter or searching for less.')
       : emptyState(5, 'Nobody is entered yet', 'Runners appear here once the start list is loaded.');
@@ -240,9 +312,7 @@ function render() {
     tr.className = `runner-row ${r.status}` +
       (r.position && r.position <= 3 ? ` podium p${r.position}` : '') +
       (open.has(r.bib) ? ' open' : '');
-    const progress = r.splits.length
-      ? esc(r.splits[r.splits.length - 1].checkpoint)
-      : `<span class="tag ${tone}">${label}</span>`;
+    const progress = progressCell(r, tone, label);
     // data-c drives the phone layout, where the table becomes stacked cards.
     tr.innerHTML =
       `<td class="num pos" data-c="pos">${r.position ?? ''}</td>` +
@@ -258,6 +328,36 @@ function render() {
 
     if (open.has(r.bib)) tb.appendChild(detailRow(r));
   });
+}
+
+/* The last column used to print the name of the last checkpoint passed, which
+   for a finished race is the word "Finish" on every single row. For someone
+   who has finished, the number that means something is how far back they were
+   -- the gap is the first thing anyone asks after their own time. */
+function progressCell(r, tone, label) {
+  if (r.status === 'finished') {
+    const lead = leaderTime(r.race_id);
+    if (lead == null || r.finish_seconds == null) return '';
+    const gap = Math.round(r.finish_seconds - lead);
+    if (gap <= 0) return '<span class="tag go">winner</span>';
+    const m = Math.floor(gap / 60), sec = gap % 60;
+    return `<span class="gap">+${m}:${String(sec).padStart(2, '0')}</span>`;
+  }
+  if (r.splits.length) return esc(r.splits[r.splits.length - 1].checkpoint);
+  return `<span class="tag ${tone}">${label}</span>`;
+}
+
+// Cached per render: this is called once per row and would otherwise scan the
+// whole field each time.
+let leaderCache = new Map();
+function leaderTime(raceId) {
+  if (!leaderCache.has(raceId)) {
+    const times = data.results
+      .filter(r => r.race_id === raceId && r.finish_seconds != null)
+      .map(r => r.finish_seconds);
+    leaderCache.set(raceId, times.length ? Math.min(...times) : null);
+  }
+  return leaderCache.get(raceId);
 }
 
 // "3rd of 12 in Veteran" -- the placing people actually quote, and the one
