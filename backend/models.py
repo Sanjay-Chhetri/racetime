@@ -189,3 +189,65 @@ class Read(Base):
     __table_args__ = (
         Index("ix_reads_lookup", "event_id", "bib", "checkpoint_id"),
     )
+
+
+# --------------------------------------------------------------------------
+# People who operate the system
+#
+# Separate from Participant on purpose: a runner is a row in a start list, an
+# operator is someone who signs in and changes things. Conflating them would
+# mean every runner needed a password and every operator an entry in a race.
+# --------------------------------------------------------------------------
+
+# Ordered weakest to strongest. Comparing by index is how a permission check
+# stays a single expression rather than a chain of role names.
+ROLES = ("admin", "super_admin")
+
+
+class User(Base):
+    """An operator. Passwords are never stored, only a PBKDF2 digest."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    # Lower-cased on the way in, so "Sanjay" and "sanjay" are one account and
+    # the unique index actually holds.
+    username = Column(String(40), unique=True, nullable=False, index=True)
+    display_name = Column(String(80), nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(16), nullable=False, default="admin")
+    is_active = Column(Boolean, nullable=False, default=True)
+    # Set when an account is created or reset by a super admin, so the app can
+    # insist on a new password before it is used for anything.
+    must_change_password = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    sessions = relationship(
+        "Session", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def is_super(self) -> bool:
+        return self.role == "super_admin"
+
+
+class Session(Base):
+    """A signed-in browser.
+
+    Server-side rather than a self-contained token, because a session that
+    cannot be revoked is not a session -- it is a password with an expiry date.
+    Deleting the row signs that browser out immediately, everywhere.
+    """
+    __tablename__ = "sessions"
+
+    # The raw token never touches the database: what is stored is its SHA-256,
+    # so a leaked database backup does not hand over live sessions.
+    token_hash = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    # Enough to recognise your own sessions in a list; not a fingerprint.
+    user_agent = Column(String(200), nullable=True)
+
+    user = relationship("User", back_populates="sessions")

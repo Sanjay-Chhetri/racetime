@@ -132,7 +132,7 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   fallback, and Enter in that field opens the event just as the button does.
 - **FR-1.5** `GET /api/events/public` returns only each event's code and name.
   It is unauthenticated, so the pickers on the admin, checkpoint and certificate
-  screens work whether or not `ADMIN_TOKEN` is set.
+  screens work whether or not anyone is signed in.
 
 ### FR-2 — Races
 
@@ -295,13 +295,11 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   the state persists.
 - **FR-7b.6** Sign-in uses the **same token and storage key as the admin
   screens**, so signing in here carries over to them.
-- **FR-7b.7** When `ADMIN_TOKEN` is **unset**, there is nothing to verify. The
-  tools still start hidden -- that keeps the page aimed at runners -- but on
-  opening them the page **states plainly that no token is set and the screens
-  are reachable by anyone who knows their address**. It never implies a lock
-  that does not exist.
-- **FR-7b.8** A wrong token is refused and re-prompted; it never reveals the
-  organiser section.
+- **FR-7b.7** Signed out, the organiser section is absent and the page offers
+  only a link to `/login.html`. Signed in, it names the role and tailors what
+  Race admin is described as doing.
+- **FR-7b.8** The page asks the server who it is talking to; it never decides
+  from anything held in the browser.
 
 ### FR-7a — Race admin layout (`/admin.html#<code>[/<section>]`)
 
@@ -414,32 +412,105 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   is a secondary action rather than the main path.
 - **FR-9.12** Deep links work: `/certificate.html#<code>/<bib>`.
 
-### FR-10 — Admin authentication
+### FR-10 — Accounts, authentication and authorisation
 
-- **FR-10.1** The admin token is read from the `ADMIN_TOKEN` environment
-  variable at startup.
-- **FR-10.2** When `ADMIN_TOKEN` is **unset**, every endpoint stays open and a
-  warning is printed at startup. Local development is unaffected.
-- **FR-10.3** When it is set, 19 endpoints require that value in an
-  `X-Admin-Token` header and answer `401` without it: list all events, create
-  event, set start, artwork upload and delete, branding, race create / update /
-  delete, checkpoint create / update / delete, participant add / CSV import /
-  update / delete, mark DNF, the raw reads listing, and void read.
-- **FR-10.4** The token is compared with `secrets.compare_digest`, so it cannot
-  be recovered a character at a time by timing responses.
-- **FR-10.5** These stay **public by design**: a single event by code, its
-  races, its checkpoints, its participants, its results, its artwork,
-  `/api/time`, `/api/health`, and **`POST` reads**. See
-  [§8.1](#81-why-read-ingest-is-open).
-- **FR-10.6** `GET /api/admin/check` reports whether the server is protected and
-  validates a candidate token, so the admin page can tell a good token from a
-  bad one before storing it.
-- **FR-10.7** Race admin shows a `locked` / `unlocked` control in the masthead,
-  and hides it entirely when the server is unprotected. The token is kept in
-  `localStorage`.
-- **FR-10.8** On a `401` the stored token is cleared, the operator is asked
-  again, and **the original request is replayed** so work in progress is not
-  lost.
+The shared `ADMIN_TOKEN` is gone. One secret that every operator pasted into
+`localStorage` could not say who did something, could not be taken away from
+one person without changing it for everybody, and gave a volunteer exactly the
+powers of the race director.
+
+**Identity**
+
+- **FR-10.1** Operators are rows in a `users` table: username (unique,
+  lower-cased), display name, password digest, role, active flag, and a
+  "must change password" flag.
+- **FR-10.2** Passwords are stored as **PBKDF2-HMAC-SHA256**, 600,000
+  iterations, 16-byte random salt, verified with `hmac.compare_digest`. The
+  stored string carries its own parameters, so the iteration count can be
+  raised later and existing hashes still verify — and are re-hashed silently on
+  the owner's next sign-in, the one moment the plaintext is available.
+- **FR-10.3** bcrypt and argon2 are better algorithms and are **deliberately
+  not used**: both are compiled dependencies, and a wheel that does not match
+  the serverless runtime is a deployment that never boots. PBKDF2 from the
+  standard library cannot fail to install.
+- **FR-10.4** Login failures give **one message for every cause**. Saying "no
+  such user" would let anyone enumerate the accounts.
+
+**Sessions**
+
+- **FR-10.5** Sessions are **rows, not self-contained tokens**. A token that
+  cannot be withdrawn is a password with an expiry date; a row can be deleted,
+  which signs that browser out immediately and everywhere.
+- **FR-10.6** The database stores the **SHA-256 of the token**, never the
+  token, so a leaked backup does not hand over live sessions.
+- **FR-10.7** The cookie is `HttpOnly` (JavaScript cannot read it, so an
+  injected script cannot steal it), `SameSite=Lax` (which blocks the cross-site
+  POST that CSRF depends on), and `Secure` whenever the request arrived over
+  HTTPS or the host is a known serverless platform.
+- **FR-10.8** Sessions last 12 hours — a race day, not a fortnight — and the
+  expiry slides while someone is working, but is only rewritten every 2 hours
+  so a busy screen does not write to the database on every request.
+- **FR-10.9** Expired rows are purged on each successful login.
+
+**Roles**
+
+- **FR-10.10** Two roles, ordered: `admin` < `super_admin`. A dependency takes
+  the minimum required and compares by index, so "admin or above" is one
+  comparison and adding a role later does not mean revisiting every endpoint.
+- **FR-10.11** **super_admin** may do everything, and only they may
+  **create an event** or reach **member management**.
+- **FR-10.12** **admin** may run a race completely — races, checkpoints,
+  participants, artwork, branding, DNF, voiding reads, printing bibs — but may
+  not create an event or manage accounts.
+- **FR-10.13** Refusals distinguish `401` ("say who you are") from `403`
+  ("I know who you are, and no").
+
+**Member management (super admin only)**
+
+- **FR-10.14** List, create, edit, disable and delete accounts. A created
+  account is flagged to choose its own password on first sign-in.
+- **FR-10.15** **Disabling an account deletes its sessions**, so it is cut off
+  mid-request rather than at the next expiry.
+- **FR-10.16** A password reset also deletes that account's sessions, because a
+  reset usually means the account may be compromised.
+- **FR-10.17** You cannot demote, disable or delete **yourself**, and the
+  **last active super admin** cannot be demoted, disabled or deleted by anyone.
+  Locking every super admin out of their own system is a support call nobody
+  can answer.
+- **FR-10.18** A password may never equal its username, and is at least 8
+  characters.
+- **FR-10.19** Changing your own password requires the current one and
+  **signs out every other browser**, since the usual reason to change a
+  password is suspecting someone else has it.
+
+**Enforcement**
+
+- **FR-10.20** `GET /admin.html` is **served only to a signed-in operator**;
+  otherwise it answers `303` to `/login.html?next=…`. Hiding a screen in the
+  browser is decoration — the server has to refuse it. The page is also sent
+  `Cache-Control: no-store` so no shared proxy keeps a copy.
+- **FR-10.21** The browser hides what an account may not do — the create-race
+  form, the Members tab — but **every check is repeated on the server**. The UI
+  only avoids offering a dead end.
+- **FR-10.22** Hiding a tab uses the `hidden` attribute, and `.tab[hidden]`
+  carries an explicit `display: none`, because a class that sets `display`
+  overrides the attribute and the tab would otherwise stay on screen.
+- **FR-10.23** Still **public by design**: a single event by code, its races,
+  checkpoints, participants, results, artwork, `/api/time`, `/api/health`,
+  `/api/events/public`, and **POST reads**. The capture screen and the results
+  page are static files served to anyone and cannot hold a secret. Read ingest
+  stays open as a conscious tradeoff — reads are append-only and voidable, so
+  the worst case is noise a race director clears, not data loss.
+
+**Seeding**
+
+- **FR-10.24** On a database with no accounts at all, four are created:
+  `sanjay` and `sajal` as super admins, `johny` and `sherap` as admins, each
+  with its username as the password and **flagged to change it on first use**.
+  Seeding never runs against a non-empty table, so it cannot overwrite a
+  password someone has since changed.
+- **FR-10.25** `RACETIME_SEED_USERS` overrides the defaults as
+  `name:password:role,…`.
 
 ### FR-11 — Audit
 
@@ -451,6 +522,29 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
 
 ---
+
+### FR-12 — Himalayan wallpapers
+
+- **FR-12.1** Five wallpapers — Kanchenjunga dawn, Cloud forest, Monsoon,
+  Clear night, Plain dark — chosen from swatches and remembered per browser in
+  `localStorage`.
+- **FR-12.2** **No photographs.** The sky is a gradient and the range is two
+  flat shapes cut by an inline SVG mask: under a kilobyte, no network request.
+  A photograph would look better for about the two seconds it takes a phone on
+  hill data to fetch it, on a page people open at a finish line.
+- **FR-12.3** One pair of shapes serves every theme; the colours are custom
+  properties, so a new wallpaper is five variables and no new assets.
+- **FR-12.4** The sky is painted on `<html>`, not `<body>`: body is a centred
+  column with a max-width, and a background there leaves bare gutters on a wide
+  screen.
+- **FR-12.5** Applied from a two-line inline script in `<head>`, before first
+  paint. A module is deferred, so doing it in the module would show the default
+  colours and then jump.
+- **FR-12.6** Only pages that opt in carry `data-wallpaper`. The **finisher
+  certificate does not**, because it is exported as an image and must keep
+  exactly the background the organiser uploaded.
+- **FR-12.7** Panels over a wallpaper stay at 88% opacity with a small blur, so
+  they remain readable in sunlight at a finish line.
 
 ## 5. Non-functional requirements
 
@@ -476,9 +570,10 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
 ## 6. API reference
 
-29 routes. **19 require the admin token** when `ADMIN_TOKEN` is set; they are
-marked 🔒 and answer `401` without an `X-Admin-Token` header. Interactive docs
-at `/docs` while the server runs.
+🔒 marks a route needing a **signed-in operator**; ⭐ marks one needing a
+**super admin**. Anything unmarked is public. A route that needs a session
+answers `401` without one, and `403` when the account is signed in but lacks
+the role. Interactive docs at `/docs` while the server runs.
 
 ### Clock and health
 | | Method | Path | Purpose |
@@ -490,9 +585,17 @@ at `/docs` while the server runs.
 ### Events
 | | Method | Path | Purpose |
 |---|---|---|---|
+| | `POST` | `/api/auth/login` | Username and password for a session cookie |
+| | `POST` | `/api/auth/logout` | Delete the session row |
+| 🔒 | `GET` | `/api/auth/me` | The signed-in account and its permissions |
+| 🔒 | `POST` | `/api/auth/password` | Change your own; signs out other browsers |
+| ⭐ | `GET` | `/api/users` | List accounts |
+| ⭐ | `POST` | `/api/users` | Create an account |
+| ⭐ | `PATCH` | `/api/users/{id}` | Role, active flag, password reset |
+| ⭐ | `DELETE` | `/api/users/{id}` | Remove an account |
 | 🔒 | `GET` | `/api/events` | List every event |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
-| 🔒 | `POST` | `/api/events` | Create (`409` on duplicate code) |
+| ⭐ | `POST` | `/api/events` | Create (`409` on duplicate code) |
 | | `GET` | `/api/events/{code}` | One event, with races and checkpoints |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
 
@@ -568,14 +671,18 @@ is not data loss, and it buys a capture app that works on any phone with no
 setup. If a race ever needs it closed, the capture app would need a per-device
 key issued at checkpoint setup.
 
-### 8.1a Token handling
+### 8.1a Credential handling
 
-`ADMIN_TOKEN` is compared with `secrets.compare_digest`, so it cannot be
-recovered a character at a time by timing responses. The admin page keeps it in
-`localStorage` and validates it against `/api/admin/check` before storing, so a
-typo is caught at entry. **Leaving `ADMIN_TOKEN` unset leaves the whole API
-open** — deliberate, so a laptop needs no setup, and announced with a startup
-warning.
+Session tokens and password digests are compared with `hmac.compare_digest`, so
+neither can be recovered a character at a time by timing responses. The session
+token never reaches JavaScript — it is an `HttpOnly` cookie — and the database
+holds only its SHA-256, so a leaked backup yields no usable session. Passwords
+are PBKDF2-HMAC-SHA256 at 600,000 iterations with a per-account salt.
+
+The remaining gap is **the checkpoint screen**: volunteers scan without an
+account, so `POST /reads` is open. Reads are append-only and voidable, so the
+worst case is noise a race director clears from the audit screen. Closing it
+properly means per-device credentials issued at checkpoint setup.
 
 ### 8.2 No SVG uploads
 Uploads are served from the application's own origin. An SVG can carry script, so
@@ -700,7 +807,7 @@ Required environment:
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./racetime.db` | Postgres URL in production |
-| `ADMIN_TOKEN` | *(unset)* | **Set this before any public deployment.** Unset means every endpoint is open |
+| `RACETIME_SEED_USERS` | *(unset)* | First-run accounts, `name:password:role,…`. Only consulted when the users table is empty |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
 HTTPS is mandatory in any deployment: phone cameras will not start without it.

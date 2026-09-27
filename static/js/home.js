@@ -6,7 +6,8 @@
    "Race admin" above both. The organiser tools are behind a sign-in now -- they
    are a handful of people, once per event, and they know where they are going. */
 
-import { esc, ok, fail, promptDialog, withBusy } from '/js/ui.js';
+import { esc, ok } from '/js/ui.js';
+import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
 
@@ -92,98 +93,47 @@ function renderRecent() {
   $('recent').hidden = false;
 }
 
-/* ---------- organiser sign-in ----------
+/* ---------- organiser ----------
 
-   The same token the admin screens use, so signing in here carries over to
-   them. The server decides whether it is needed: when ADMIN_TOKEN is unset
-   there is nothing to check, and saying so plainly is better than implying a
-   lock that is not there. */
+   The page asks the server who this is. It does not decide anything itself:
+   what an account may do is the server's answer, and every endpoint behind
+   these links checks again. Hiding a link is tidiness, not security. */
 
-const TOKEN_KEY = 'racetime.adminToken';
-let serverProtected = false;
-
-const storedToken = () => {
-  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
-};
-
-function setToken(t) {
+async function initAuth() {
+  let who = null;
   try {
-    if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch { /* storage unavailable; the session still works in memory */ }
-}
+    who = await fetch('/api/admin/check').then(r => r.json());
+  } catch {
+    return;                      // offline: leave the runner's page alone
+  }
+  if (!who || !who.signed_in) return;
 
-async function tokenWorks(t) {
-  const res = await fetch('/api/admin/check', { headers: { 'X-Admin-Token': t } });
-  return res.ok;
-}
+  $('orgWho').textContent = who.role === 'super_admin' ? 'a super admin' : 'an admin';
+  $('adminCardText').textContent = who.can_create_events
+    ? 'Create races, set checkpoints, load the start list, upload artwork and print bibs.'
+    : 'Set checkpoints, load the start list, upload artwork and print bibs.';
 
-function showOrganiser(on) {
-  $('organiser').hidden = !on;
-  $('signIn').hidden = on;
-  const note = $('orgNote');
-  if (on && !serverProtected) {
+  if (who.must_change_password) {
+    const note = $('orgNote');
     note.hidden = false;
-    note.textContent = 'This server has no admin token set, so these screens are ' +
-      'open to anyone who knows their address. Set ADMIN_TOKEN to close them.';
-  } else {
-    note.hidden = true;
+    note.textContent = 'Your account is still using the password it was created '
+      + 'with. Change it under Your account in Race admin.';
   }
-  if (on) $('organiser').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  $('organiser').hidden = false;
+  $('signIn').hidden = true;
 }
 
-$('signIn').onclick = e => withBusy(e.currentTarget, async () => {
-  if (!serverProtected) {
-    // Nothing to verify. Hiding the tools is still worth doing -- it keeps the
-    // page aimed at runners -- but it is a tidy-up, not a lock, and it says so.
-    showOrganiser(true);
-    return;
-  }
-  let reason = 'Enter the admin token to reach the organiser screens.';
-  for (;;) {
-    const entered = await promptDialog({
-      title: 'Organiser sign-in',
-      body: reason,
-      placeholder: 'paste the token',
-      confirm: 'Sign in',
-    });
-    if (entered === null) return;
-    if (await tokenWorks(entered)) {
-      setToken(entered);
-      ok('Signed in.');
-      showOrganiser(true);
-      return;
-    }
-    reason = 'That token was not accepted. Try again.';
-  }
-});
-
-$('signOut').onclick = () => {
-  setToken('');
-  showOrganiser(false);
+$('signOut').onclick = async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* going anyway */ }
+  $('organiser').hidden = true;
+  $('signIn').hidden = false;
   ok('Signed out.');
 };
 
-async function initAuth() {
-  let check = null;
-  try {
-    check = await fetch('/api/admin/check').then(r => r.json().catch(() => null));
-  } catch { /* offline: leave the tools hidden rather than guess */ }
-
-  // A 401 body has no `protected` flag, so an unauthenticated check that comes
-  // back without one means the server is gated.
-  serverProtected = !check || check.protected !== false;
-
-  if (!serverProtected) {
-    // Nothing is gated, so a previous sign-in cannot be verified either way.
-    // Stay hidden until asked; the runner's page is the point.
-    return;
-  }
-  const t = storedToken();
-  if (t && await tokenWorks(t)) showOrganiser(true);
-}
-
 /* ---------- go ---------- */
+
+mountPicker($('wallpaper'));
 
 loadRaces().then(() => {
   syncButtons();

@@ -66,6 +66,7 @@ export const fail = m => toast(m, 'error');
  */
 export function confirmDialog(opts) {
   const { title, body = '', confirm = 'Confirm', cancel = 'Cancel', danger = true } = opts;
+  // cancel: null renders an acknowledgement, with no way to decline.
 
   return new Promise(resolve => {
     const prev = document.activeElement;
@@ -76,7 +77,8 @@ export function confirmDialog(opts) {
          <h3 id="mt">${esc(title)}</h3>
          ${body ? `<p>${esc(body)}</p>` : ''}
          <div class="modal-acts">
-           <button class="cancel">${esc(cancel)}</button>
+           ${cancel === null ? ''
+             : `<button class="cancel">${esc(cancel)}</button>`}
            <button class="go ${danger ? 'danger-solid' : 'primary'}">${esc(confirm)}</button>
          </div>
        </div>`;
@@ -100,7 +102,8 @@ export function confirmDialog(opts) {
       }
     }
 
-    back.querySelector('.cancel').onclick = () => done(false);
+    const cancelBtn = back.querySelector('.cancel');
+    if (cancelBtn) cancelBtn.onclick = () => done(false);
     back.querySelector('.go').onclick = () => done(true);
     back.onclick = e => { if (e.target === back) done(false); };
     document.addEventListener('keydown', onKey, true);

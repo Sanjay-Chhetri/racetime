@@ -27,6 +27,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Trying it on a phone](#trying-it-on-a-phone)
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
+- [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
 - [Race admin](#race-admin)
@@ -55,7 +56,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 | **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
 | **Finisher share cards** | A 1080 × 1350 image built for Instagram and WhatsApp, on your artwork. Runners search by name and can add their own photo. |
 | **Live leaderboard** | Says whether the race is still on, how many are home and how far each runner is behind the winner. Filter by race, status, category or gender. |
-| **Admin gate** | One shared token protects every write. Results and scanning stay public. |
+| **Accounts and roles** | Named sign-ins with two roles. Super admins create races and manage members; admins run them. Results and scanning stay public. |
 | **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
 
 ---
@@ -184,6 +185,37 @@ Two naming rules follow from how the app works:
 
 ---
 
+## Signing in
+
+Organisers sign in at `/login.html` with a username and password. There are two
+roles:
+
+| | Super admin | Admin |
+|---|---|---|
+| Run a race — runners, checkpoints, artwork, reads, bibs | yes | yes |
+| **Create a race** | yes | no |
+| **Manage members** | yes | no |
+
+Passwords are stored as PBKDF2-HMAC-SHA256 at 600,000 iterations. The session is
+an `HttpOnly`, `SameSite=Lax` cookie backed by a row in the database, so signing
+someone out — or disabling their account — takes effect on their very next
+request rather than whenever a token happens to expire. `/admin.html` is not
+served at all to anyone who is not signed in.
+
+**First run** creates four accounts if the database has none:
+
+| Username | Password | Role |
+|---|---|---|
+| `sanjay` | `sanjay` | Super admin |
+| `sajal` | `sajal` | Super admin |
+| `johny` | `johny` | Admin |
+| `sherap` | `sherap` | Admin |
+
+> **These are starting passwords, not passwords.** Each account is flagged to
+> choose a new one the first time it signs in, and the app says so until it is
+> done. Set `RACETIME_SEED_USERS` as `name:password:role,…` to seed different
+> ones, or change them from **Members** once you are in.
+
 ## The landing page
 
 `/` is written for runners and the people watching them. Pick a race, then
@@ -191,10 +223,9 @@ Two naming rules follow from how the app works:
 the last few races you opened.
 
 Organiser screens are behind **Organiser sign-in** in the corner, using the same
-token as Race admin, so signing in once covers both. If `ADMIN_TOKEN` is not set
-on your server there is nothing to check: the tools still stay out of a runner's
-way, but the page says plainly that they are reachable by anyone with the
-address rather than pretending to be locked.
+account as Race admin, so signing in once covers both. Signed out, the page
+shows a runner nothing of the organiser's, and `/admin.html` is not served at
+all.
 
 ## The results page
 
@@ -352,15 +383,18 @@ seed.py             40-runner demo race
 
 ## API
 
-29 routes, 19 of which need the admin token when `ADMIN_TOKEN` is set (marked
-🔒). Interactive docs at `/docs` while the server runs. The ones you will
-actually touch:
+Interactive docs at `/docs` while the server runs. 🔒 needs a signed-in
+operator; ⭐ needs a **super admin**. Everything unmarked is public. The ones
+you will actually touch:
 
 | | Method | Path | Notes |
 |---|---|---|---|
 | | `GET` | `/api/time` | Clock reference for capture devices |
+| | `POST` | `/api/auth/login` | Sign in; sets the session cookie |
+| | `POST` | `/api/auth/logout` | Sign out |
+| ⭐ | `GET` | `/api/users` | Accounts (super admin only) |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
-| 🔒 | `POST` | `/api/events` | Create an event |
+| ⭐ | `POST` | `/api/events` | Create an event |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
 | 🔒 | `POST` | `/api/events/{code}/races` | One per distance |
 | 🔒 | `POST` | `/api/events/{code}/checkpoints` | One per timing point |
@@ -385,10 +419,10 @@ below issues a certificate automatically.
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./racetime.db` | **Required in production.** Postgres URL |
-| `ADMIN_TOKEN` | *(unset)* | **Set before going public.** Unset = every endpoint open |
+| `RACETIME_SEED_USERS` | *(unset)* | First-run accounts as `name:password:role,…`. Only used on an empty database |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
-> **Set `ADMIN_TOKEN` before deploying anywhere public.** Without it every
+> **Change the starting passwords before deploying anywhere public.** The
 > endpoint stays open and anyone who finds the URL can create events, edit start
 > lists and delete races. With it, the 19 endpoints that change a race require
 > the token, while results, certificates and checkpoint scanning stay public.
@@ -470,7 +504,7 @@ Learned the hard way by everyone who has ever timed a race:
 
 ## Security
 
-Set **`ADMIN_TOKEN`** to a long random value and the API splits in two.
+Signing in splits the API in three.
 
 **Requires the token** (19 endpoints, `401` without it): listing all events,
 creating an event, firing the gun, artwork, branding, every race / checkpoint /
@@ -490,7 +524,7 @@ paste the token once, and it is remembered in this browser. It is checked
 before being stored, so a typo is caught immediately, and if the server rejects
 it later the app asks again and replays what you were doing.
 
-**Leave `ADMIN_TOKEN` unset and everything is open** — deliberate, so a laptop
+**The public half stays open** — deliberate, so a laptop
 needs no setup. The server says so loudly at startup.
 
 Also handled:
@@ -526,7 +560,7 @@ so all are additive.
 | Artwork vanished after deploying | You are on a build from before artwork moved into the database. Re-upload it once. |
 | Two checkpoints both named "Finish" rejected | Names are unique per event. Use `5K Finish` and `10K Finish`. |
 | `409` on a checkpoint's order number | That sequence is already used in the same race. The message names the checkpoint holding it. |
-| Everything returns `401` | `ADMIN_TOKEN` is set and this browser has not been unlocked. Click the `locked` pill in Race admin. |
+| Everything returns `401` | Your session has ended. Sign in again at `/login.html`. |
 | `ModuleNotFoundError: No module named 'psycopg'` | Your `DATABASE_URL` uses the psycopg 3 scheme. Both drivers ship now; reinstall from `requirements.txt`. |
 | A page loads but nothing renders | Almost always a stale cached file. Hard-refresh once (`Ctrl+Shift+R`); the server now sends `no-cache` so it should not recur. |
 | Results are empty though scans are arriving | The gun has not been fired, so there is nothing to measure elapsed time from. |

@@ -1,64 +1,46 @@
 import QRCode from '/vendor/qrcode.esm.js';
 // Runner names and race names reach the bib and the certificate as markup, and
 // they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
-import { esc, ok, fail, confirmDialog, promptDialog, withBusy, fitImageForUpload,
+import { esc, ok, fail, confirmDialog, withBusy, fitImageForUpload,
          skeletonRows, emptyState } from '/js/ui.js';
+import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
 let ev = null;
 
-/* ---------- admin token ----------
-   A shared secret, held in localStorage and sent on every write. The server
-   decides whether it is needed; if ADMIN_TOKEN is unset there the app simply
-   never sees a 401 and never asks. */
+/* ---------- who is signed in ----------
 
-const TOKEN_KEY = 'racetime.adminToken';
-let adminToken = localStorage.getItem(TOKEN_KEY) || '';
+   There is no token in this file any more. The session is an HttpOnly cookie:
+   the browser attaches it to every same-origin request on its own, and this
+   script cannot read it, so an injected script cannot steal it either. What
+   the old shared token bought -- one secret, pasted into localStorage, giving
+   whoever held it every power in the system -- was never worth it. */
 
-function setToken(t) {
-  adminToken = t || '';
-  if (adminToken) localStorage.setItem(TOKEN_KEY, adminToken);
-  else localStorage.removeItem(TOKEN_KEY);
-  renderLock();
-}
+let me = null;                    // { user, can_create_events, can_manage_users }
+const isSuper = () => Boolean(me && me.can_manage_users);
 
-async function tokenWorks(t) {
-  const res = await fetch('/api/admin/check', { headers: { 'X-Admin-Token': t } });
-  return res.ok;
-}
-
-/** Ask for the token, checking it before storing so a typo is caught here
- *  rather than on whatever the operator tries to do next. */
-async function askForToken(reason) {
-  for (;;) {
-    const entered = await promptDialog({
-      title: 'Admin token',
-      body: reason || 'This server is protected. Enter the admin token to make changes.',
-      placeholder: 'paste the token',
-      confirm: 'Unlock',
-    });
-    if (entered === null) return false;          // cancelled
-    if (await tokenWorks(entered)) { setToken(entered); ok('Unlocked.'); return true; }
-    reason = 'That token was not accepted. Try again.';
-  }
+function toLogin() {
+  const next = encodeURIComponent(location.pathname + location.hash);
+  location.href = `/login.html?next=${next}`;
 }
 
 const api = async (path, opts) => {
   opts = { ...(opts || {}) };
   opts.headers = { ...(opts.headers || {}) };
-  if (adminToken) opts.headers['X-Admin-Token'] = adminToken;
 
-  let res = await fetch('/api' + path, opts);
-
-  // A 401 means the token is missing, wrong, or was rotated on the server.
-  // Clear it and ask once, then replay the request so the operator does not
-  // lose what they were doing.
-  if (res.status === 401) {
-    setToken('');
-    const unlocked = await askForToken('This server needs an admin token.');
-    if (!unlocked) throw new Error('Admin token required.');
-    opts.headers['X-Admin-Token'] = adminToken;
+  let res;
+  try {
     res = await fetch('/api' + path, opts);
+  } catch {
+    throw new Error('Could not reach the server. Check your connection.');
+  }
+
+  // 401 is "your session has gone" -- expired, signed out in another tab, or
+  // the account was disabled while this page was open. There is nothing to
+  // retry, so send them to sign in rather than failing the action silently.
+  if (res.status === 401) {
+    toLogin();
+    throw new Error('Your session has ended. Signing in again…');
   }
 
   if (res.status === 204) return null;
@@ -73,9 +55,8 @@ const api = async (path, opts) => {
 
   if (!res.ok) {
     const detail = body && body.detail;
-    // A 413 is usually the host rejecting the body at the edge, before the app
+    // 413 is usually the host rejecting the body at the edge, before the app
     // sees it, so it answers in plain text and there is no detail to show.
-    // "The server returned 413" told the operator nothing they could act on.
     if (res.status === 413 && !detail) {
       throw new Error('That file is too large to upload. Save it at a smaller ' +
                       'size, or pick a smaller image.');
@@ -98,41 +79,75 @@ const fmtTime = iso => iso ? new Date(iso).toLocaleString() : 'not started';
 
 /* ---------- lock indicator ---------- */
 
-let serverProtected = false;
+/* ---------- the account bar ---------- */
 
-function renderLock() {
-  const b = $('lock');
-  if (!serverProtected) { b.hidden = true; return; }
-  b.hidden = false;
-  const unlocked = Boolean(adminToken);
-  b.className = 'lockbtn ' + (unlocked ? 'open' : 'shut');
-  b.textContent = unlocked ? 'unlocked' : 'locked';
-  b.title = unlocked
-    ? 'This browser can make changes. Click to lock it again.'
-    : 'Read-only. Click to enter the admin token.';
+function renderAccount() {
+  if (!me) return;
+  const u = me.user;
+  $('whoName').textContent = u.display_name || u.username;
+  $('whoRole').textContent = u.role === 'super_admin' ? 'Super admin' : 'Admin';
+  $('whoRole').className = 'rolepill ' + (u.role === 'super_admin' ? 'super' : '');
+  $('account').hidden = false;
+
+  // Creating a race belongs to super admins, so an admin is not shown a form
+  // the server is going to refuse. The check that counts is on the server;
+  // this only stops the interface offering a dead end.
+  $('createWrap').hidden = !me.can_create_events;
+  $('tab-members').hidden = !me.can_manage_users;
+
+  $('pwNag').hidden = !u.must_change_password;
 }
 
-$('lock').onclick = async () => {
-  if (adminToken) { setToken(''); ok('Locked. This browser can no longer make changes.'); }
-  else await askForToken();
+$('signOut').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Sign out?',
+    body: 'You will need your username and password to get back in.',
+    confirm: 'Sign out',
+  })) return;
+  try { await api('/auth/logout', { method: 'POST' }); } catch { /* going anyway */ }
+  location.href = '/login.html';
 };
 
-/** Ask the server whether it is protected at all, so a laptop running with no
- *  ADMIN_TOKEN never sees a lock it does not need. */
-(async () => {
+/* ---------- your own password ---------- */
+
+$('pwSave').onclick = e => withBusy(e.currentTarget, async () => {
+  $('pwErr').hidden = true;
+  const current = $('pwCurrent').value;
+  const next = $('pwNew').value;
+  const again = $('pwAgain').value;
+  if (next !== again) {
+    $('pwErr').textContent = 'The two new passwords do not match.';
+    $('pwErr').hidden = false;
+    return;
+  }
   try {
-    const res = await fetch('/api/admin/check',
-      adminToken ? { headers: { 'X-Admin-Token': adminToken } } : undefined);
-    if (res.status === 401) { serverProtected = true; setToken(''); }
-    else {
-      const body = await res.json().catch(() => ({}));
-      serverProtected = Boolean(body.protected);
+    await api('/auth/password', json('POST', {
+      current_password: current, new_password: next,
+    }));
+    ok('Password changed. Any other browser you were signed in on has been signed out.');
+    ['pwCurrent', 'pwNew', 'pwAgain'].forEach(id => { $(id).value = ''; });
+    me = await api('/auth/me');
+    renderAccount();
+    // They arrived here before choosing a race; hand the app back.
+    if (location.hash === '#!password') {
+      location.hash = '';
+      $('chooser').hidden = false;
+      loadEventPicker('');
     }
-  } catch { /* offline: leave the lock hidden rather than guess */ }
-  renderLock();
-})();
+  } catch (err) {
+    $('pwErr').textContent = err.message;
+    $('pwErr').hidden = false;
+  }
+});
+
+['pwCurrent', 'pwNew', 'pwAgain'].forEach(id => {
+  $(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('pwSave').click(); }
+  });
+});
 
 /* ---------- open / create ---------- */
+
 
 $('open').onclick = () => load($('code').value.trim());
 
@@ -188,11 +203,19 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
    address bar after the code (#siliguri10k/runners) so a reload comes back to
    where you were and a link can point at a section. */
 
-const TABS = ['runners', 'races', 'checkpoints', 'artwork', 'reads'];
+// Tabs that need a race open, and tabs that belong to the operator.
+const RACE_TABS = ['runners', 'races', 'checkpoints', 'artwork', 'reads'];
+const OPS_TABS = ['members', 'account'];
+const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
 
 function showTab(name, { push = true } = {}) {
-  if (!TABS.includes(name)) name = TABS[0];
+  if (!TABS.includes(name)) name = ev ? RACE_TABS[0] : 'account';
+  // Typing #code/members must not open a screen the account cannot use. The
+  // server refuses its endpoints anyway; this stops the empty shell appearing.
+  if (name === 'members' && !isSuper()) name = ev ? RACE_TABS[0] : 'account';
+  // A race tab with no race open would be five empty panels.
+  if (RACE_TABS.includes(name) && !ev) name = 'account';
   tab = name;
   document.querySelectorAll('.tab').forEach(b => {
     const on = b.dataset.tab === name;
@@ -203,11 +226,21 @@ function showTab(name, { push = true } = {}) {
   document.querySelectorAll('.tabpanel').forEach(s => {
     s.hidden = s.dataset.tab !== name;
   });
-  if (push && ev) location.hash = `${ev.code}/${name}`;
+
+  // The race tabs only make sense with a race open, so they appear with one
+  // and go away without one, rather than sitting there doing nothing.
+  const onRace = Boolean(ev);
+  RACE_TABS.forEach(t => { $('tab-' + t).hidden = !onRace; });
+  $('event').hidden = !(onRace && RACE_TABS.includes(name));
+  $('chooser').hidden = onRace;
+
+  if (push && ev && RACE_TABS.includes(name)) location.hash = `${ev.code}/${name}`;
+  else if (push && OPS_TABS.includes(name)) location.hash = '!' + name;
 
   // Reads are fetched only when asked for. Loading a few thousand rows on
   // every open made the page slow to appear for something rarely looked at.
   if (name === 'reads' && !readsLoaded) loadReads();
+  if (name === 'members') loadMembers();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
 }
@@ -229,18 +262,22 @@ $('tabs').addEventListener('keydown', e => {
   $('tab-' + TABS[next]).focus();
 });
 
-/** "siliguri10k/runners" -> { code, tab } */
+/** "siliguri10k/runners" -> { code, tab }; "!members" -> { tab } */
 function parseHash() {
-  const [code, wanted] = location.hash.slice(1).split('/');
+  const raw = location.hash.slice(1);
+  if (raw.startsWith('!')) {
+    const wanted = raw.slice(1);
+    return { code: null, tab: OPS_TABS.includes(wanted) ? wanted : null };
+  }
+  const [code, wanted] = raw.split('/');
   return { code, tab: TABS.includes(wanted) ? wanted : null };
 }
 
 $('switchEvent').onclick = () => {
   ev = null;
-  $('event').hidden = true;
-  $('chooser').hidden = false;
   location.hash = '';
   $('pickEvent').value = '';
+  showTab('account', { push: false });
   $('pickEvent').focus();
 };
 
@@ -252,10 +289,8 @@ async function load(code, wantTab) {
   } catch (e) { $('err').textContent = e.message; return; }
   if ($('pickEvent').options.length > 1) $('pickEvent').value = code;
   $('code').value = code;
-  // With a race open the chooser is just a lid on the page; "switch race" in
-  // the event bar brings it back.
-  $('chooser').hidden = true;
-  $('event').hidden = false;
+  // Which containers are visible is showTab's job now, since the operator
+  // screens stay reachable whether or not a race is open.
   $('evName').textContent = ev.name;
   $('startTime').textContent = fmtTime(ev.start_time);
   $('accent').value = ev.accent_color || '#f2c500';
@@ -782,6 +817,154 @@ $('printBibs').onclick = e => withBusy(e.currentTarget, async () => {
   window.print();
 });
 
+/* ---------- members (super admin only) ---------- */
+
+const ROLE_LABEL = { super_admin: 'Super admin', admin: 'Admin' };
+
+function memberError(msg) {
+  const el = $('muErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+async function loadMembers() {
+  const tb = $('memberList');
+  tb.innerHTML = skeletonRows(6, 4);
+  let users;
+  try {
+    users = await api('/users');
+  } catch (e) {
+    tb.innerHTML = emptyState(6, 'Could not load the member list', e.message);
+    return;
+  }
+  $('nMembers').textContent = users.length || '';
+  tb.innerHTML = '';
+
+  users.forEach(u => {
+    const isSelf = me && me.user && u.id === me.user.id;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td><strong>${esc(u.username)}</strong>${isSelf ? ' <span class="tag">you</span>' : ''}</td>` +
+      `<td>${esc(u.display_name || '')}</td>` +
+      `<td><span class="rolepill ${u.role === 'super_admin' ? 'super' : ''}">` +
+        `${esc(ROLE_LABEL[u.role] || u.role)}</span></td>` +
+      `<td>${u.is_active
+        ? (u.must_change_password
+            ? '<span class="tag wait">must set password</span>'
+            : '<span class="tag go">active</span>')
+        : '<span class="tag stop">disabled</span>'}</td>` +
+      `<td class="num">${u.last_login_at
+        ? new Date(u.last_login_at).toLocaleDateString() : '—'}</td>` +
+      `<td class="num">
+         <button class="quiet" data-reset="${u.id}">Reset password</button>
+         ${isSelf ? '' :
+           `<button class="quiet" data-role="${u.id}" data-to="${
+              u.role === 'super_admin' ? 'admin' : 'super_admin'}">${
+              u.role === 'super_admin' ? 'Make admin' : 'Make super'}</button>
+            <button class="quiet danger" data-active="${u.id}" data-to="${
+              u.is_active ? 'false' : 'true'}">${u.is_active ? 'Disable' : 'Enable'}</button>`}
+       </td>`;
+    tb.appendChild(tr);
+  });
+
+  tb.querySelectorAll('button[data-reset]').forEach(b => {
+    b.onclick = () => resetPassword(b.dataset.reset,
+      users.find(u => String(u.id) === b.dataset.reset));
+  });
+  tb.querySelectorAll('button[data-role]').forEach(b => {
+    b.onclick = () => changeRole(b.dataset.role, b.dataset.to,
+      users.find(u => String(u.id) === b.dataset.role));
+  });
+  tb.querySelectorAll('button[data-active]').forEach(b => {
+    b.onclick = () => setActive(b.dataset.active, b.dataset.to === 'true',
+      users.find(u => String(u.id) === b.dataset.active));
+  });
+}
+
+async function resetPassword(id, u) {
+  const next = await confirmDialog({
+    title: `Reset ${u.username}'s password?`,
+    body: 'They will be signed out everywhere and given a new starting ' +
+          'password, which they must change when they next sign in.',
+    confirm: 'Reset it',
+  });
+  if (!next) return;
+  // Generated here rather than typed, so a reset never quietly becomes
+  // "password123" because someone was in a hurry.
+  const fresh = 'rt-' + Math.random().toString(36).slice(2, 8) +
+                '-' + Math.random().toString(36).slice(2, 6);
+  try {
+    await api(`/users/${id}`, json('PATCH', { password: fresh }));
+    await confirmDialog({
+      title: 'New password',
+      body: `${u.username} can sign in with:\n\n${fresh}\n\n` +
+            'Give it to them in person. It is not shown again.',
+      confirm: 'Done',
+      cancel: null,
+    });
+    loadMembers();
+  } catch (e) { memberError(e.message); }
+}
+
+async function changeRole(id, to, u) {
+  const label = ROLE_LABEL[to];
+  if (!await confirmDialog({
+    title: `Make ${u.username} a ${label.toLowerCase()}?`,
+    body: to === 'super_admin'
+      ? 'They will be able to create races and manage this member list.'
+      : 'They will keep full control of races but lose event creation and ' +
+        'member management.',
+    confirm: `Make ${label.toLowerCase()}`,
+  })) return;
+  try {
+    await api(`/users/${id}`, json('PATCH', { role: to }));
+    ok(`${u.username} is now a ${label.toLowerCase()}.`);
+    loadMembers();
+  } catch (e) { memberError(e.message); }
+}
+
+async function setActive(id, active, u) {
+  if (!active && !await confirmDialog({
+    title: `Disable ${u.username}?`,
+    body: 'They are signed out immediately and cannot sign back in. Nothing ' +
+          'they have already recorded is affected.',
+    confirm: 'Disable',
+    danger: true,
+  })) return;
+  try {
+    await api(`/users/${id}`, json('PATCH', { is_active: active }));
+    ok(active ? `${u.username} can sign in again.` : `${u.username} is disabled.`);
+    loadMembers();
+  } catch (e) { memberError(e.message); }
+}
+
+$('muAdd').onclick = e => withBusy(e.currentTarget, async () => {
+  memberError('');
+  const username = $('muName').value.trim();
+  const password = $('muPass').value;
+  if (!username || !password) {
+    memberError('A username and a starting password are both needed.');
+    return;
+  }
+  try {
+    const made = await api('/users', json('POST', {
+      username,
+      password,
+      display_name: $('muDisplay').value.trim() || null,
+      role: $('muRole').value,
+    }));
+    ok(`Added ${made.username}.`);
+    ['muName', 'muDisplay', 'muPass'].forEach(id => { $(id).value = ''; });
+    loadMembers();
+  } catch (err) { memberError(err.message); }
+});
+
+['muName', 'muDisplay', 'muPass'].forEach(id => {
+  $(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('muAdd').click(); }
+  });
+});
+
 /* ---------- audit ----------
 
    Two hundred rows rendered at once was 11,000px of table -- most of the old
@@ -866,10 +1049,36 @@ $('moreReads').onclick = () => drawReads(false);
 $('readFilter').addEventListener('input', () => drawReads());
 $('refreshReads').onclick = e => withBusy(e.currentTarget, loadReads);
 
-// Fill the picker on arrival, and open whatever the address bar names.
-const at = parseHash();
-loadEventPicker(at.code);
-if (at.code) load(at.code, at.tab);
+/* ---------- start ----------
+
+   Identity first. Everything else -- which tabs exist, whether the create-race
+   form is offered -- depends on who this is, and asking afterwards would show
+   an admin a super admin's screen for a moment before taking it away. */
+
+mountPicker($('wallpaper'));
+
+(async () => {
+  try {
+    me = await api('/auth/me');
+  } catch {
+    return;            // api() has already redirected to the sign-in page
+  }
+  renderAccount();
+  $('ops').hidden = false;
+
+  // A fresh account is sent straight here by the sign-in page.
+  if (location.hash === '#!password') {
+    showTab('account', { push: false });
+    $('chooser').hidden = true;
+    $('pwCurrent').focus();
+    return;
+  }
+
+  const at = parseHash();
+  loadEventPicker(at.code);
+  if (at.code) load(at.code, at.tab);
+  else showTab(at.tab || 'account', { push: false });
+})();
 
 // Back and forward should move between tabs, not silently do nothing.
 window.addEventListener('hashchange', () => {

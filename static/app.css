@@ -1166,6 +1166,9 @@ tr.racedivider .n { float: right; }
   white-space: nowrap; cursor: pointer;
 }
 .tab:hover { color: var(--paper); background: var(--rule-soft); }
+/* `display` in a class beats the [hidden] attribute's display:none, so a tab
+   hidden from an account it does not belong to stayed on screen. */
+.tab[hidden] { display: none; }
 .tab.on {
   color: var(--ink); background: var(--paint);
   border-color: var(--paint);
@@ -1401,4 +1404,193 @@ body.home { padding-bottom: 0; }
   .sitebar { margin-bottom: var(--s5); }
   .pickrace { padding: var(--s4); }
   .pickgo button { flex: 1 1 100%; }
+}
+
+
+/* ---------- Himalayan wallpapers ----------
+
+   Only pages that opt in carry `data-wallpaper` on <html>, so a page that does
+   not ask for one -- the finisher certificate, exported as an image and bound
+   to keep exactly the background the organiser uploaded -- is untouched.
+
+   No photographs. The sky is a gradient and the range is two flat shapes with
+   an SVG mask, which together weigh under a kilobyte and need no network
+   request. A photograph of Kanchenjunga would look better for about the two
+   seconds it takes a phone on hill data to fetch it, and this is a page people
+   open at a finish line. */
+
+html[data-wallpaper] {
+  --sky-1: #121722;
+  --sky-2: #14181d;
+  --glow: transparent;
+  --ridge-far: rgba(255, 255, 255, .05);
+  --ridge-near: rgba(255, 255, 255, .08);
+}
+
+/* Kanchenjunga at first light: the range goes rose long before the valley. */
+html[data-wallpaper="dawn"] {
+  --sky-1: #241536;
+  --sky-2: #16121c;
+  --glow: rgba(240, 130, 85, .28);
+  --ridge-far: rgba(255, 190, 160, .10);
+  --ridge-near: rgba(255, 160, 120, .14);
+}
+
+/* The cloud forest below Darjeeling: wet green, low mist. */
+html[data-wallpaper="pine"] {
+  --sky-1: #0e2220;
+  --sky-2: #101614;
+  --glow: rgba(90, 200, 160, .15);
+  --ridge-far: rgba(160, 235, 205, .08);
+  --ridge-near: rgba(120, 220, 180, .13);
+}
+
+/* Monsoon: the range is there, you simply cannot see much of it. */
+html[data-wallpaper="monsoon"] {
+  --sky-1: #17222f;
+  --sky-2: #141a22;
+  --glow: rgba(150, 190, 230, .13);
+  --ridge-far: rgba(195, 220, 245, .07);
+  --ridge-near: rgba(170, 205, 240, .11);
+}
+
+/* A clear night at altitude. */
+html[data-wallpaper="night"] {
+  --sky-1: #080c16;
+  --sky-2: #06080e;
+  --glow: rgba(120, 140, 220, .14);
+  --ridge-far: rgba(190, 200, 240, .07);
+  --ridge-near: rgba(160, 175, 235, .12);
+}
+
+/* No wallpaper at all, for anyone who finds it a distraction. */
+html[data-wallpaper="plain"] {
+  --sky-1: #14181d;
+  --sky-2: #14181d;
+  --glow: transparent;
+  --ridge-far: transparent;
+  --ridge-near: transparent;
+}
+
+/* The sky sits on <html>, not <body>: body is a centred column with a
+   max-width, so a background there stops at the text and leaves bare gutters
+   down both sides of a wide screen. */
+html[data-wallpaper] {
+  background:
+    radial-gradient(70vw 45vh at 68% 78%, var(--glow), transparent 68%),
+    linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 70%);
+  background-attachment: fixed, fixed;
+  min-height: 100%;
+}
+html[data-wallpaper] body { background: transparent; }
+
+/* Two ridges, each a flat colour cut to shape by a mask. One pair of shapes
+   serves every theme -- the colour is a variable, not a second file. */
+html[data-wallpaper]::before,
+html[data-wallpaper] body::before {
+  content: '';
+  position: fixed; left: 0; right: 0; bottom: 0;
+  pointer-events: none; z-index: -1;
+  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+  mask-size: 100% 100%; -webkit-mask-size: 100% 100%;
+  mask-position: bottom; -webkit-mask-position: bottom;
+}
+
+/* Far range: taller, fainter, further back. */
+html[data-wallpaper]::before {
+  height: 26vh;
+  background: var(--ridge-far);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 260' preserveAspectRatio='none'%3E%3Cpath d='M0 260V168l96-74 72 56 86-100 98 116 72-62 112 100 94-124 106 132 80-66 98 84 112-100 74 86v128z' fill='%23fff'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 260' preserveAspectRatio='none'%3E%3Cpath d='M0 260V168l96-74 72 56 86-100 98 116 72-62 112 100 94-124 106 132 80-66 98 84 112-100 74 86v128z' fill='%23fff'/%3E%3C/svg%3E");
+}
+
+/* Near range: shorter, a touch stronger, overlapping the far one. */
+html[data-wallpaper] body::before {
+  height: 15vh;
+  background: var(--ridge-near);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 150' preserveAspectRatio='none'%3E%3Cpath d='M0 150V104l124-52 92 58 108-74 132 84 96-46 126 74 104-62 118 78 100-44v84z' fill='%23fff'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 150' preserveAspectRatio='none'%3E%3Cpath d='M0 150V104l124-52 92 58 108-74 132 84 96-46 126 74 104-62 118 78 100-44v84z' fill='%23fff'/%3E%3C/svg%3E");
+}
+
+/* The wallpaper must never win against what sits on it. Panels stay opaque
+   enough to read at a glance in sunlight, which is the condition that actually
+   matters at a finish line. */
+html[data-wallpaper] .panel,
+html[data-wallpaper] .pickrace,
+html[data-wallpaper] .organiser,
+html[data-wallpaper] .score,
+html[data-wallpaper] .recentcard,
+html[data-wallpaper] .orgcard {
+  background-color: rgba(20, 24, 29, .88);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ---------- the wallpaper picker ---------- */
+
+.wallpicker { display: inline-flex; align-items: center; gap: var(--s2); }
+.wallpicker .swatches { display: inline-flex; gap: 5px; }
+.wallswatch {
+  width: 1.15rem; height: 1.15rem; padding: 0; flex: none;
+  border-radius: 50%; border: 1px solid var(--rule);
+  cursor: pointer;
+}
+.wallswatch:hover { transform: scale(1.12); }
+.wallswatch[aria-pressed="true"] {
+  border-color: var(--paint);
+  box-shadow: 0 0 0 2px rgba(242, 197, 0, .35);
+}
+.wallswatch[data-w="dawn"]    { background: linear-gradient(140deg, #2a1748, #f2825a); }
+.wallswatch[data-w="pine"]    { background: linear-gradient(140deg, #0c1c1a, #5ac8a0); }
+.wallswatch[data-w="monsoon"] { background: linear-gradient(140deg, #16202c, #8fc4f0); }
+.wallswatch[data-w="night"]   { background: linear-gradient(140deg, #070a12, #7b8cdc); }
+.wallswatch[data-w="plain"]   { background: #14181d; }
+
+/* ---------- sign-in ---------- */
+
+body.signin {
+  max-width: none;
+  min-height: 100dvh;
+  display: grid; place-items: center;
+  padding: var(--s5) var(--pad);
+}
+.signinbox {
+  width: 100%; max-width: 23rem;
+  padding: var(--s6) var(--s5);
+  background: rgba(20, 24, 29, .9);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--rule); border-radius: var(--r3);
+  box-shadow: var(--shadow-2);
+}
+.signinbox .brand { margin-bottom: var(--s5); }
+.signinbox h1 { font-size: 1.8rem; margin: 0 0 var(--s2); }
+.signinbox .note { margin-bottom: var(--s4); }
+.signinbox button { margin-top: var(--s4); }
+.signinfoot { margin: var(--s4) 0 0; font-size: .82rem; }
+.signinwall {
+  position: fixed; bottom: var(--s4); left: 0; right: 0;
+  display: flex; justify-content: center;
+}
+
+/* A dialog sometimes has to show something with its own line breaks -- a
+   generated password, read aloud from a screen -- and collapsing them would
+   run the characters together. */
+.modal p { white-space: pre-line; }
+
+/* ---------- who is signed in ---------- */
+
+.account { display: flex; align-items: center; gap: var(--s3); margin-left: auto; }
+.account .who { display: inline-flex; align-items: center; gap: var(--s2); }
+.account .nm { color: var(--paper); font-weight: 600; font-size: .9rem; }
+.rolepill {
+  display: inline-block; padding: 1px var(--s2);
+  border-radius: var(--r-pill);
+  font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase;
+  background: var(--rule); color: var(--muted);
+}
+.rolepill.super { background: rgba(242, 197, 0, .16); color: var(--paint); }
+
+@media (max-width: 560px) {
+  .account { width: 100%; margin-left: 0; flex-wrap: wrap; }
 }

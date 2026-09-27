@@ -173,3 +173,60 @@ class ResultOut(BaseModel):
 class TimeOut(BaseModel):
     server_time: UtcDatetime
     epoch_ms: int
+
+
+# --------------------------------------------------------------------------
+# Operators
+# --------------------------------------------------------------------------
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class UserOut(BaseModel):
+    """What is safe to send about an account. No hash, ever."""
+    id: int
+    username: str
+    display_name: Optional[str] = None
+    role: str
+    is_active: bool
+    must_change_password: bool
+    created_at: Optional[UtcDatetime] = None
+    last_login_at: Optional[UtcDatetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MeOut(BaseModel):
+    """The signed-in user, plus what the UI is allowed to offer them.
+
+    The permissions are sent so the interface can hide what will be refused.
+    They are a convenience for the browser, never the check itself -- the
+    server decides again on every request.
+    """
+    user: UserOut
+    can_create_events: bool
+    can_manage_users: bool
+
+
+class UserIn(BaseModel):
+    username: str = Field(min_length=2, max_length=40,
+                          pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=200)
+    display_name: Optional[str] = Field(None, max_length=80)
+    role: Literal["admin", "super_admin"] = "admin"
+
+
+class UserPatch(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=80)
+    role: Optional[Literal["admin", "super_admin"]] = None
+    is_active: Optional[bool] = None
+    # Set by a super admin resetting someone who is locked out.
+    password: Optional[str] = Field(None, min_length=8, max_length=200)
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)

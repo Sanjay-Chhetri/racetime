@@ -11,15 +11,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, File
+from fastapi import (
+    Depends, FastAPI, HTTPException, Request, UploadFile, File,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import (
+    FileResponse, JSONResponse, RedirectResponse, Response,
+)
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import schemas
+from . import auth, models, schemas
 from .db import Base, SessionLocal, engine, get_db
 from .models import Checkpoint, Event, Participant, Race, Read, utcnow
 from .timing import compute_results
@@ -142,6 +146,17 @@ _add_missing_columns("events", {
     "tagline": "VARCHAR(160)",
     "bib_style": "VARCHAR(8)",
 })
+def _seed_accounts():
+    """Create the starting operator accounts if the table is empty."""
+    db = SessionLocal()
+    try:
+        auth.seed_users(db)
+    finally:
+        db.close()
+
+
+_seed_accounts()
+
 _add_missing_columns("checkpoints", {"race_id": "INTEGER"})
 _add_missing_columns("participants", {"race_id": "INTEGER", "gender": "VARCHAR(16)"})
 _backfill_default_race()
@@ -184,49 +199,229 @@ async def _integrity_error(request, exc):
 
 
 # --------------------------------------------------------------------------
-# Admin authentication
+# Who is signed in
+#
+# Accounts and roles live in backend/auth.py. What sits here is the wiring:
+# every request looks up its session once, and endpoints declare the role they
+# need. The single shared ADMIN_TOKEN is gone -- it could not say who did
+# something, could not be withdrawn from one person, and handed a volunteer
+# exactly the same power as the race director.
 # --------------------------------------------------------------------------
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+@app.middleware("http")
+async def _attach_user(request: Request, call_next):
+    """Resolve the session cookie once per request.
 
-if not ADMIN_TOKEN:
-    print(
-        "\n  WARNING: ADMIN_TOKEN is not set, so every endpoint is open."
-        "\n  Anyone who can reach this server can create, edit and"
-        "\n  delete races. That is fine on a laptop. Set ADMIN_TOKEN"
-        "\n  before putting this on the internet.\n",
-        flush=True,
+    A request with no cookie -- every public results view, every scan posted
+    from a checkpoint -- costs nothing: there is no query to make.
+    """
+    request.state.user_id = None
+    raw = request.cookies.get(auth.COOKIE_NAME)
+    if raw:
+        db = SessionLocal()
+        try:
+            request.state.user_id = auth.resolve_session(db, raw)
+        finally:
+            db.close()
+    return await call_next(request)
+
+
+ADMIN = auth.ADMIN          # admin or super admin
+SUPER = auth.SUPER          # super admin only
+
+
+def _me(user: models.User) -> schemas.MeOut:
+    return schemas.MeOut(
+        user=schemas.UserOut.model_validate(user),
+        can_create_events=user.is_super,
+        can_manage_users=user.is_super,
     )
 
 
-def require_admin(x_admin_token: str = Header(default="")) -> None:
-    """Guard the endpoints that change a race.
+@app.post("/api/auth/login", response_model=schemas.MeOut)
+def login(payload: schemas.LoginIn, request: Request, response: Response,
+          db: Session = Depends(get_db)):
+    """Exchange a username and password for a session cookie.
 
-    Left open on purpose, because the two apps that need them cannot hold a
-    secret: a volunteer's capture screen and the public results page are just
-    static files served to anyone. So reading a single event, its start list,
-    its results and its artwork stay public -- and so does POSTing reads.
-
-    That last one is a conscious v1 tradeoff. Reads are append-only and every
-    one of them can be voided, so the worst an anonymous poster can do is add
-    noise a race director clears from the audit screen. It is not data loss,
-    and it buys a capture app that works on any phone with no setup.
+    One message for every kind of failure. Saying "no such user" would let
+    anyone enumerate who has an account here.
     """
-    if not ADMIN_TOKEN:
-        return
-    # compare_digest keeps the check constant-time, so the token cannot be
-    # guessed a character at a time by timing the responses.
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
-        raise HTTPException(401, "Admin token missing or incorrect")
+    user = (db.query(models.User)
+            .filter(models.User.username == payload.username.strip().lower())
+            .first())
+    if user is None or not user.is_active or not auth.verify_password(
+            payload.password, user.password_hash):
+        raise HTTPException(401, "That username and password do not match.")
+
+    # Quietly bring an old hash up to the current iteration count while the
+    # plaintext is in hand -- the only moment it is possible.
+    if auth.needs_rehash(user.password_hash):
+        user.password_hash = auth.hash_password(payload.password)
+
+    auth.start_session(db, user, response, request)
+    auth.purge_expired(db)
+    return _me(user)
 
 
-ADMIN = [Depends(require_admin)]
+@app.post("/api/auth/logout", status_code=204)
+def logout(request: Request, db: Session = Depends(get_db)):
+    auth.end_session(db, request.cookies.get(auth.COOKIE_NAME))
+    response = Response(status_code=204)
+    auth.clear_cookie(response)
+    return response
+
+
+@app.get("/api/auth/me", response_model=schemas.MeOut)
+def whoami(user: models.User = Depends(auth.require_user)):
+    return _me(user)
+
+
+@app.post("/api/auth/password", status_code=204)
+def change_password(payload: schemas.PasswordChangeIn, request: Request,
+                    user: models.User = Depends(auth.require_user),
+                    db: Session = Depends(get_db)):
+    """Change your own password. Signs out every other browser.
+
+    A password change is usually a response to suspecting someone else has it,
+    so leaving their sessions alive would defeat the point.
+    """
+    if not auth.verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(403, "Your current password is not correct.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(422, "The new password must be different.")
+    if payload.new_password.strip().lower() == user.username:
+        raise HTTPException(422, "Your password cannot be your username.")
+
+    user.password_hash = auth.hash_password(payload.new_password)
+    user.must_change_password = False
+    keep = auth.token_hash(request.cookies.get(auth.COOKIE_NAME) or "")
+    db.query(models.Session).filter(
+        models.Session.user_id == user.id,
+        models.Session.token_hash != keep).delete(synchronize_session=False)
+    db.commit()
+    return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------
+# Member management -- super admin only
+# --------------------------------------------------------------------------
+
+def _super_admin_count(db: Session) -> int:
+    return (db.query(models.User)
+            .filter(models.User.role == "super_admin",
+                    models.User.is_active.is_(True))
+            .count())
+
+
+@app.get("/api/users", response_model=List[schemas.UserOut], dependencies=SUPER)
+def list_users(db: Session = Depends(get_db)):
+    return db.query(models.User).order_by(models.User.username).all()
+
+
+@app.post("/api/users", response_model=schemas.UserOut, status_code=201,
+          dependencies=SUPER)
+def create_user(payload: schemas.UserIn, db: Session = Depends(get_db)):
+    username = payload.username.strip().lower()
+    if db.query(models.User).filter(models.User.username == username).first():
+        raise HTTPException(409, f"There is already an account called '{username}'.")
+    if payload.password.strip().lower() == username:
+        raise HTTPException(422, "The password cannot be the username.")
+    user = models.User(
+        username=username,
+        display_name=(payload.display_name or payload.username).strip(),
+        password_hash=auth.hash_password(payload.password),
+        role=payload.role,
+        must_change_password=True,   # they choose their own on first sign-in
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.patch("/api/users/{user_id}", response_model=schemas.UserOut,
+           dependencies=SUPER)
+def update_user(user_id: int, payload: schemas.UserPatch,
+                actor: models.User = Depends(auth.require_super_admin),
+                db: Session = Depends(get_db)):
+    user = db.get(models.User, user_id)
+    if user is None:
+        raise HTTPException(404, "No such account.")
+
+    data = payload.model_dump(exclude_unset=True)
+
+    # You cannot demote or disable yourself. Locking the last super admin out
+    # of their own system is a support call nobody can answer.
+    if user.id == actor.id:
+        if data.get("role") and data["role"] != user.role:
+            raise HTTPException(422, "You cannot change your own role.")
+        if data.get("is_active") is False:
+            raise HTTPException(422, "You cannot disable your own account.")
+
+    # Nor may the last one standing be taken out by anyone else.
+    demoting = bool(data.get("role")) and data["role"] != "super_admin"
+    if (demoting or data.get("is_active") is False) and user.is_super:
+        if _super_admin_count(db) <= 1:
+            raise HTTPException(
+                422, "This is the only super admin. Promote someone else first.")
+
+    new_password = data.pop("password", None)
+    if new_password:
+        if new_password.strip().lower() == user.username:
+            raise HTTPException(422, "The password cannot be the username.")
+        user.password_hash = auth.hash_password(new_password)
+        user.must_change_password = True
+        # A reset exists because an account may be compromised, so end its
+        # sessions rather than leaving whoever holds one signed in.
+        db.query(models.Session).filter(
+            models.Session.user_id == user.id).delete(synchronize_session=False)
+
+    for field, value in data.items():
+        setattr(user, field, value)
+
+    # Disabling an account must also close the door behind it.
+    if data.get("is_active") is False:
+        db.query(models.Session).filter(
+            models.Session.user_id == user.id).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.delete("/api/users/{user_id}", status_code=204, dependencies=SUPER)
+def delete_user(user_id: int,
+                actor: models.User = Depends(auth.require_super_admin),
+                db: Session = Depends(get_db)):
+    user = db.get(models.User, user_id)
+    if user is None:
+        raise HTTPException(404, "No such account.")
+    if user.id == actor.id:
+        raise HTTPException(422, "You cannot delete your own account.")
+    if user.is_super and _super_admin_count(db) <= 1:
+        raise HTTPException(422, "This is the only super admin.")
+    db.delete(user)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/api/admin/check")
-def admin_check(_: None = Depends(require_admin)):
-    """Lets the admin page tell a good token from a bad one before it saves it."""
-    return {"ok": True, "protected": bool(ADMIN_TOKEN)}
+def admin_check(request: Request, db: Session = Depends(get_db)):
+    """What the browser needs in order to decide which screens to offer.
+
+    Always 200. The previous version answered 401 to mean "protected", so the
+    home page could not tell "this server has accounts" from "your session has
+    expired" without guessing.
+    """
+    user = auth.optional_user(request, db)
+    return {
+        "protected": True,          # there is always an account system now
+        "signed_in": user is not None,
+        "role": user.role if user else None,
+        "can_create_events": bool(user and user.is_super),
+        "can_manage_users": bool(user and user.is_super),
+        "must_change_password": bool(user and user.must_change_password),
+    }
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -315,7 +510,10 @@ def list_events(db: Session = Depends(get_db)):
     return db.query(Event).order_by(Event.created_at.desc()).all()
 
 
-@app.post("/api/events", response_model=schemas.EventOut, status_code=201, dependencies=ADMIN)
+# Creating a race commits the organisation to it -- codes end up on printed
+# bibs and in shared links -- so it sits with the super admins.
+@app.post("/api/events", response_model=schemas.EventOut, status_code=201,
+          dependencies=SUPER)
 def create_event(payload: schemas.EventIn, db: Session = Depends(get_db)):
     if db.query(Event).filter(Event.code == payload.code).first():
         raise HTTPException(409, f"Event code '{payload.code}' is already taken")
@@ -911,6 +1109,25 @@ def health():
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+# Pages that only an operator may see. Registered before the static mount, so
+# these win over it. The API would refuse an anonymous caller anyway and the
+# page would render empty -- but an admin screen that loads at all, for anyone
+# who guesses the URL, is not something to leave standing.
+@app.get("/admin.html", include_in_schema=False)
+def admin_page(request: Request):
+    # Only "is anyone signed in?" -- the middleware has already validated the
+    # session, so this needs no query, and every API call behind the page
+    # checks the role properly.
+    if auth.signed_in_id(request) is None:
+        # 303 so the browser follows with GET, and `next` so signing in lands
+        # back where they were headed rather than on the home page.
+        return RedirectResponse("/login.html?next=%2Fadmin.html", status_code=303)
+    return FileResponse(
+        STATIC_DIR / "admin.html",
+        headers={"Cache-Control": "no-store"},   # never cached by a shared proxy
+    )
 
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

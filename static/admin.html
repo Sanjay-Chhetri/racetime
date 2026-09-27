@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Race admin · RaceTime</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="wide">
@@ -12,8 +13,21 @@
 <div class="masthead noprint">
   <h1>Race admin</h1>
   <span class="where"><a href="/">home</a></span>
-  <button id="lock" class="lockbtn" hidden></button>
+  <div class="account" id="account" hidden>
+    <span id="wallpaper"></span>
+    <span class="who">
+      <span class="nm" id="whoName"></span>
+      <span class="rolepill" id="whoRole"></span>
+    </span>
+    <button id="signOut" class="linkbtn">Sign out</button>
+  </div>
 </div>
+
+<!-- Shown until the starting password has been replaced. -->
+<p class="fieldErr noprint" id="pwNag" hidden>
+  This account is still using the password it was created with. Change it in
+  <a href="#!password">Your account</a>.
+</p>
 
 <section class="panel noprint" id="chooser">
   <label for="pickEvent">Your races</label>
@@ -30,7 +44,7 @@
       <button id="open" class="narrow">Open</button>
     </div>
   </details>
-  <details style="margin-top:.8rem">
+  <details style="margin-top:.8rem" id="createWrap" hidden>
     <summary class="note">Create a new event</summary>
     <label for="newName">Race name</label>
     <input id="newName" placeholder="Siliguri Hill Run 10K">
@@ -40,6 +54,81 @@
   </details>
   <p class="note" id="err" style="color:var(--stop)"></p>
 </section>
+
+<!-- Navigation and the screens that belong to the operator rather than
+     to a race. Members and Your account are reachable with no race open:
+     managing people is not something you should have to open a race to do. -->
+<div id="ops" hidden>
+  <!-- One panel at a time. The page was 16,000px of scroll, and Runners sat
+       below three sections nobody touches once the race is set up. -->
+  <nav class="tabs noprint" id="tabs" role="tablist" aria-label="Race admin sections">
+    <button class="tab" role="tab" data-tab="runners" id="tab-runners"
+            aria-controls="panel-runners">Runners <span class="tab-n" id="nRunners"></span></button>
+    <button class="tab" role="tab" data-tab="races" id="tab-races"
+            aria-controls="panel-races">Races <span class="tab-n" id="nRaces"></span></button>
+    <button class="tab" role="tab" data-tab="checkpoints" id="tab-checkpoints"
+            aria-controls="panel-checkpoints">Checkpoints <span class="tab-n" id="nCheckpoints"></span></button>
+    <button class="tab" role="tab" data-tab="artwork" id="tab-artwork"
+            aria-controls="panel-artwork">Artwork</button>
+    <button class="tab" role="tab" data-tab="reads" id="tab-reads"
+            aria-controls="panel-reads">Reads <span class="tab-n" id="nReads"></span></button>
+    <button class="tab" role="tab" data-tab="members" id="tab-members" hidden
+            aria-controls="panel-members">Members <span class="tab-n" id="nMembers"></span></button>
+    <button class="tab" role="tab" data-tab="account" id="tab-account"
+            aria-controls="panel-account">Your account</button>
+  </nav>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-members" data-tab="members" aria-labelledby="tab-members">
+    <p class="note">Who can sign in, and what they are allowed to do.
+    <strong>Super admins</strong> can do everything, including creating races and
+    managing this list. <strong>Admins</strong> can run a race &mdash; runners,
+    checkpoints, artwork, reads &mdash; but cannot create a race or reach this
+    screen.</p>
+
+    <table class="roster"><thead><tr>
+      <th>Username</th><th>Name</th><th>Role</th><th>Status</th>
+      <th>Last signed in</th><th></th>
+    </tr></thead><tbody id="memberList"></tbody></table>
+
+    <h3 style="margin:1.4rem 0 .2rem">Add someone</h3>
+    <div class="row">
+      <div><label for="muName">Username</label>
+        <input id="muName" autocapitalize="none" placeholder="tenzing"></div>
+      <div><label for="muDisplay">Display name</label>
+        <input id="muDisplay" autocapitalize="words" placeholder="Tenzing Bhutia"></div>
+      <div><label for="muPass">Starting password</label>
+        <input id="muPass" type="text" autocomplete="off" placeholder="at least 8 characters"></div>
+      <div class="narrow"><label for="muRole">Role</label>
+        <select id="muRole">
+          <option value="admin">Admin</option>
+          <option value="super_admin">Super admin</option>
+        </select></div>
+      <button id="muAdd" class="primary narrow">Add</button>
+    </div>
+    <p class="note">They will be asked to choose their own password the first
+    time they sign in. Tell them the starting one in person, not over a channel
+    you would not put a password in.</p>
+    <p class="fieldErr" id="muErr" hidden></p>
+  </section>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-account" data-tab="account" aria-labelledby="tab-account">
+    <h3 style="margin:0 0 .2rem">Change your password</h3>
+    <p class="note">Changing it signs out every other browser you are signed in
+    on. That is deliberate: the usual reason to change a password is suspecting
+    someone else has it.</p>
+    <div class="row">
+      <div><label for="pwCurrent">Current password</label>
+        <input id="pwCurrent" type="password" autocomplete="current-password"></div>
+      <div><label for="pwNew">New password</label>
+        <input id="pwNew" type="password" autocomplete="new-password"
+               placeholder="at least 8 characters"></div>
+      <div><label for="pwAgain">New password again</label>
+        <input id="pwAgain" type="password" autocomplete="new-password"></div>
+      <button id="pwSave" class="primary narrow">Save</button>
+    </div>
+    <p class="fieldErr" id="pwErr" hidden></p>
+  </section>
+</div>
 
 <div id="event" hidden>
   <section class="panel noprint eventbar">
@@ -54,20 +143,6 @@
     </div>
   </section>
 
-  <!-- One panel at a time. The page was 16,000px of scroll, and Runners sat
-       below three sections nobody touches once the race is set up. -->
-  <nav class="tabs noprint" id="tabs" role="tablist" aria-label="Race admin sections">
-    <button class="tab" role="tab" data-tab="runners" id="tab-runners"
-            aria-controls="panel-runners">Runners <span class="tab-n" id="nRunners"></span></button>
-    <button class="tab" role="tab" data-tab="races" id="tab-races"
-            aria-controls="panel-races">Races <span class="tab-n" id="nRaces"></span></button>
-    <button class="tab" role="tab" data-tab="checkpoints" id="tab-checkpoints"
-            aria-controls="panel-checkpoints">Checkpoints <span class="tab-n" id="nCheckpoints"></span></button>
-    <button class="tab" role="tab" data-tab="artwork" id="tab-artwork"
-            aria-controls="panel-artwork">Artwork</button>
-    <button class="tab" role="tab" data-tab="reads" id="tab-reads"
-            aria-controls="panel-reads">Reads <span class="tab-n" id="nReads"></span></button>
-  </nav>
 
   <section class="panel noprint tabpanel" role="tabpanel" hidden
            id="panel-races" data-tab="races" aria-labelledby="tab-races">
@@ -258,6 +333,10 @@
       <button id="moreReads" hidden>Show more</button>
     </div>
   </section>
+
+  <!-- Super admins only. The tab is hidden for an admin and every endpoint
+       behind it is refused by the server regardless. -->
+
 
   <section id="bibSheet" hidden>
     <div class="bibsheet" id="bibs"></div>

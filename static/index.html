@@ -8,6 +8,7 @@
 <link rel="manifest" href="/manifest.json">
 <title>RaceTime</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="wide home">
@@ -19,9 +20,10 @@
   </a>
   <nav class="sitenav">
     <a href="/guide.html">How it works</a>
+    <span id="wallpaper"></span>
     <!-- Organiser tools live behind this. A runner has no use for them and
          should not have to step over them to reach their own time. -->
-    <button id="signIn" class="linkbtn">Organiser sign-in</button>
+    <a class="linkbtn" id="signIn" href="/login.html">Organiser sign-in</a>
   </nav>
 </header>
 
@@ -70,15 +72,15 @@
 <!-- Revealed only once an organiser signs in. -->
 <section class="organiser" id="organiser" hidden>
   <div class="orgtop">
-    <h2>Organiser</h2>
+    <h2>Signed in as <span id="orgWho"></span></h2>
     <button id="signOut" class="linkbtn">Sign out</button>
   </div>
   <p class="fieldErr plain" id="orgNote" hidden></p>
   <div class="orgcards">
     <a class="orgcard" href="/admin.html">
       <h3>Race admin</h3>
-      <p>Create races, set checkpoints, load the start list, upload artwork and
-      print bibs.</p>
+      <p id="adminCardText">Set checkpoints, load the start list, upload artwork
+      and print bibs.</p>
     </a>
     <a class="orgcard" href="/checkpoint.html">
       <h3>Checkpoint</h3>
