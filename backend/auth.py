@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from .db import get_db
@@ -294,7 +295,16 @@ def seed_users(db: DbSession) -> None:
             # be used today, not so it can be left like this.
             must_change_password=(username == password),
         ))
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two serverless instances can cold-start at once and both find the
+        # table empty. The unique index settles it; the loser rolls back and
+        # carries on, because the accounts it wanted now exist.
+        db.rollback()
+        return
+
     print(f"  Created {len(entries)} operator account(s).")
     if not spec:
         print("  WARNING: seeded with default passwords that match the usernames.")
