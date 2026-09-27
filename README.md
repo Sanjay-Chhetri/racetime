@@ -8,7 +8,8 @@ When you can afford RFID mats later, they plug into the same pipeline without a
 rewrite.
 
 Built for small and mid-size road races — the kind where a timing company quotes
-more than the entry fees bring in.
+more than the entry fees bring in. Built and run in the **Kalimpong and Pedong
+hills** of West Bengal, by [Sanjay Chhetri](https://github.com/Sanjay-Chhetri).
 
 ```
 Organiser  ──▶  Race admin      set up races, start list, print branded bibs
@@ -221,6 +222,12 @@ served at all to anyone who is not signed in.
 `/` is written for runners and the people watching them. Pick a race, then
 **See live results** or **Get my certificate** — that is the whole page, plus
 the last few races you opened.
+
+**How RaceTime works** is not on this page. It walks through the admin and
+checkpoint screens, which a runner has no use for and a new official needs
+first — so it lives in the organiser area marked *start here*, and on the
+sign-in page. The page stays reachable by URL, so you can send it to a new
+volunteer before their account exists.
 
 Organiser screens are behind **Organiser sign-in** in the corner, using the same
 account as Race admin, so signing in once covers both. Signed out, the page

@@ -300,6 +300,14 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   Race admin is described as doing.
 - **FR-7b.8** The page asks the server who it is talking to; it never decides
   from anything held in the browser.
+- **FR-7b.9** The **walk-through is not linked from the runner's page**. It
+  explains the admin and checkpoint screens, which a runner has no use for, and
+  is the first thing a new official needs — so it sits in the organiser area
+  marked *start here*, and on the sign-in page for someone who has an account
+  but has not used it yet. The page itself is left ungated: it holds no race
+  data, and it is what you send a new volunteer before their account exists.
+- **FR-7b.10** The footer names the region the app is run in and credits its
+  author.
 
 ### FR-7a — Race admin layout (`/admin.html#<code>[/<section>]`)
 

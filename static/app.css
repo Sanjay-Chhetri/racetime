@@ -1399,9 +1399,16 @@ body.home { padding-bottom: 0; }
   border-top: 1px solid var(--rule);
 }
 .sitefoot p { margin: 0; font-size: .85rem; }
+.sitefoot .footby { margin-top: var(--s2); color: var(--muted); }
+.sitefoot .footby strong { color: var(--paper); font-weight: 600; }
+/* A "start here" marker on the walk-through card, for a first-time official. */
+.orgcard h3 .tag { vertical-align: middle; margin-left: var(--s2); }
 
 @media (max-width: 560px) {
-  .sitebar { margin-bottom: var(--s5); }
+  /* Brand on one line, the controls on the next. Kept on one row they ran
+     past the right edge and the whole page scrolled sideways. */
+  .sitebar { margin-bottom: var(--s5); flex-wrap: wrap; gap: var(--s3); }
+  .sitenav { width: 100%; justify-content: space-between; gap: var(--s3); }
   .pickrace { padding: var(--s4); }
   .pickgo button { flex: 1 1 100%; }
 }
