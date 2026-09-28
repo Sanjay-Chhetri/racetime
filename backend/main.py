@@ -146,6 +146,42 @@ _add_missing_columns("events", {
     "tagline": "VARCHAR(160)",
     "bib_style": "VARCHAR(8)",
 })
+_add_missing_columns("events", {
+    "starts_at": "TIMESTAMP",
+    "location": "VARCHAR(160)",
+    "description": "VARCHAR(2000)",
+    "is_published": "BOOLEAN",
+    "registration_open": "BOOLEAN",
+    "entry_note": "VARCHAR(400)",
+})
+_add_missing_columns("participants", {"user_id": "INTEGER"})
+_add_missing_columns("users", {
+    "email": "VARCHAR(190)",
+    "phone": "VARCHAR(32)",
+    "home_town": "VARCHAR(80)",
+})
+
+
+def _backfill_flags():
+    """Give the new boolean columns a value on rows that predate them.
+
+    ADD COLUMN leaves existing rows NULL, and the response model declares these
+    as `bool`, so every event created before this feature would fail validation
+    on the way out. Cheap, and idempotent.
+    """
+    for table, column in (("events", "is_published"),
+                          ("events", "registration_open")):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"UPDATE {table} SET {column} = FALSE WHERE {column} IS NULL"))
+        except Exception as e:                  # noqa: BLE001
+            print(f"  Could not backfill {table}.{column}: {type(e).__name__}: {e}")
+
+
+_backfill_flags()
+
+
 def _seed_demo_event():
     """A published race with entries open, so the site is not empty on day one.
 
@@ -206,31 +242,23 @@ def _seed_demo_event():
 
 
 def _seed_accounts():
-    """Create the starting operator accounts if the table is empty."""
+    """Create the starting operator accounts if the table is empty.
+
+    Wrapped like the demo event: a first-run convenience must not be able to
+    stop an existing deployment from starting.
+    """
     db = SessionLocal()
     try:
         auth.seed_users(db)
+    except Exception as e:                      # noqa: BLE001
+        db.rollback()
+        print(f"  Could not seed accounts: {type(e).__name__}: {e}")
     finally:
         db.close()
 
 
 _seed_accounts()
 _seed_demo_event()
-
-_add_missing_columns("events", {
-    "starts_at": "TIMESTAMP",
-    "location": "VARCHAR(160)",
-    "description": "VARCHAR(2000)",
-    "is_published": "BOOLEAN",
-    "registration_open": "BOOLEAN",
-    "entry_note": "VARCHAR(400)",
-})
-_add_missing_columns("participants", {"user_id": "INTEGER"})
-_add_missing_columns("users", {
-    "email": "VARCHAR(190)",
-    "phone": "VARCHAR(32)",
-    "home_town": "VARCHAR(80)",
-})
 
 _add_missing_columns("checkpoints", {"race_id": "INTEGER"})
 _add_missing_columns("participants", {"race_id": "INTEGER", "gender": "VARCHAR(16)"})
