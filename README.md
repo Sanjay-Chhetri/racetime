@@ -448,23 +448,33 @@ python tools/rfid_bridge.py --event siliguri10k --checkpoint 2 --simulate
 
 ```
 backend/
-  main.py       FastAPI app, all 24 endpoints, automatic schema migrations
-  models.py     Five tables. `reads` is append-only
-  schemas.py    Pydantic request/response models
-  timing.py     Splits and rankings, computed on demand and never stored
-  db.py         SQLite by default; DATABASE_URL switches to Postgres
+  main.py         FastAPI app, every endpoint, automatic schema migrations
+  models.py       10 tables. `reads` is append-only
+  schemas.py      Pydantic request/response models
+  timing.py       Splits and rankings, computed on demand and never stored
+  achievements.py Points and badges, derived from reads on every request
+  auth.py         Passwords, sessions and the three ordered roles
+  analytics.py    Visitor counting, hashed daily and never identifying
+  mail.py         Forwards the contact form when SMTP is configured
+  db.py           SQLite by default; DATABASE_URL switches to Postgres
 static/
-  index.html        Home
-  admin.html        Race admin — races, checkpoints, start list, artwork, bibs
+  index.html        Home — find a race, upcoming races, contact
+  signup.html       Open a runner account
+  login.html        Sign in
+  me.html           A runner's own record: races, points, badges, entries
+  admin.html        Race admin — races, entries, start list, artwork, bibs
   checkpoint.html   Volunteer capture screen
   results.html      Public leaderboard
   certificate.html  Finisher certificate
+  guide.html        Walk-through for a new official
   js/store.js       Offline queue (IndexedDB) and clock sync
+  js/theme.js       The Himalayan wallpapers
   vendor/           Vendored QR library, so race day needs no CDN
 tools/
   rfid_bridge.py    The upgrade path to RFID mats
 docs/
   REQUIREMENTS.md   Full functional specification
+tools/check_docs.py Fails if the documents have drifted from the code
 seed.py             40-runner demo race
 ```
 
@@ -636,9 +646,20 @@ Also handled:
 
 ## Not built yet
 
-Authentication, online registration, payments, race photography, SMS
-notifications, and year-grouping of events. None of them affect the data model,
-so all are additive.
+**Payments** for entries, **race photography**, **SMS notifications**, and
+**year-grouping** of events. None of them affect the data model, so all are
+additive.
+
+Two gaps worth naming rather than leaving to be discovered:
+
+- **The checkpoint screen has no credentials.** Volunteers scan without
+  accounts, so `POST /api/events/{code}/reads` is open. Reads are append-only
+  and every one can be voided, so the worst case is noise a race director
+  clears from the audit screen — but closing it properly means a per-device
+  code issued at checkpoint setup, and that is not built.
+- **Session duration is not measured.** The visitor numbers cover who, when and
+  what, but not how long anyone stayed; that needs a script reporting back from
+  each page, which is the thing the server-side approach avoids.
 
 ---
 

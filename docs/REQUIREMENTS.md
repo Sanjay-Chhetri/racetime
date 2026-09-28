@@ -29,15 +29,17 @@ photography, SMS or email notification. See [§10](#10-not-built).
 
 | Actor | Uses | Device | Assumed conditions |
 |---|---|---|---|
-| **Organiser** | `/admin.html` | Laptop | Has network; sets the race up in advance |
 | **Volunteer** | `/checkpoint.html` | Phone | Often no signal; outdoors; one-handed |
-| **Runner / public** | `/results.html`, `/certificate.html` | Phone or laptop | Any time during or after the race |
+| **Super admin** | `/admin.html` | Laptop | Creates races and manages who else can sign in |
+| **Admin** | `/admin.html` | Laptop | Runs a race in full; cannot create one or manage people |
+| **Registered runner** | `/me.html`, `/signup.html` | Phone | Enters races, keeps their own record |
+| **Runner / public** | `/results.html`, `/certificate.html` | Phone or laptop | Any time during or after the race; **no account needed** |
 
 ---
 
 ## 3. Data model
 
-Five tables. `reads` is the source of truth; everything a runner sees is derived
+`reads` is the source of truth; everything a runner sees is derived
 from it on demand and never stored.
 
 ```
@@ -100,7 +102,43 @@ event rather than two.**
 | `gender` | string(16), nullable | Free text; ranked separately from category |
 | `dnf` | bool | Set manually; overrides a computed finish |
 
-### 3.5 Read — append-only
+### 3.5 User
+
+An operator or a runner. One table, one sign-in, three ordered roles
+(`runner` < `admin` < `super_admin`) — which is why adding runners changed no
+existing endpoint: every one of them already demanded "admin or above".
+
+Passwords are a PBKDF2 digest, never a password. Runners carry an email, a
+phone and a home town; operator accounts created by a super admin may carry
+none of them.
+
+### 3.6 Session
+
+A signed-in browser, as a **row** rather than a self-contained token — a token
+that cannot be withdrawn is a password with an expiry date. What is stored is
+the SHA-256 of the cookie value, so a leaked backup yields no live sessions.
+
+### 3.7 Registration
+
+**A request to run, which is not the same thing as a bib.** Keeping the two
+apart is what lets an organiser take entries for weeks, then decide the field,
+assign numbers and print. Confirming a registration is the moment a
+`Participant` is created, linked to the account; withdrawing or rejecting
+removes it again.
+
+### 3.8 PageView
+
+One visit. No cookie, no IP address, no user-agent string — a hash of the
+address, the browser and a salt that changes at midnight, so visitors can be
+counted for a day and nobody followed across days.
+
+### 3.9 Message
+
+Something sent through the contact form. Written here **before** any attempt to
+email it, because mail needs credentials that may not be set and a form that
+loses what people wrote is worse than no form.
+
+### 3.10 Read — append-only
 
 One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
@@ -708,15 +746,20 @@ the role. Interactive docs at `/docs` while the server runs.
 | | `POST` | `/api/auth/logout` | Delete the session row |
 | 🔒 | `GET` | `/api/auth/me` | The signed-in account and its permissions |
 | 🔒 | `POST` | `/api/auth/password` | Change your own; signs out other browsers |
+| | `POST` | `/api/auth/signup` | Open a runner account; the role is fixed server-side |
+| 🔒 | `GET` | `/api/me/profile` | Your own account |
+| 🔒 | `PATCH` | `/api/me/profile` | Change your name, email, phone or town |
 | ⭐ | `GET` | `/api/users` | List accounts |
 | ⭐ | `POST` | `/api/users` | Create an account |
-| ⭐ | `PATCH` | `/api/users/{id}` | Role, active flag, password reset |
-| ⭐ | `DELETE` | `/api/users/{id}` | Remove an account |
+| ⭐ | `PATCH` | `/api/users/{user_id}` | Role, active flag, password reset |
+| ⭐ | `DELETE` | `/api/users/{user_id}` | Remove an account |
 | 🔒 | `GET` | `/api/events` | List every event |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | ⭐ | `POST` | `/api/events` | Create (`409` on duplicate code) |
 | | `GET` | `/api/events/{code}` | One event, with races and checkpoints |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |
+| | `GET` | `/api/events/upcoming` | Published races, soonest first, with entry counts |
+| 🔒 | `PATCH` | `/api/events/{code}/schedule` | Date, place, description, publish, open entries |
 
 ### Branding
 | | Method | Path | Purpose |
@@ -725,6 +768,9 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `DELETE` | `/api/events/{code}/artwork` | Remove artwork |
 | | `GET` | `/api/events/{code}/artwork` | Serve the stored image |
 | 🔒 | `PATCH` | `/api/events/{code}/branding` | Accent colour, tagline, bib layout |
+| 🔒 | `POST` | `/api/events/{code}/certificate-artwork` | Upload the certificate background |
+| 🔒 | `DELETE` | `/api/events/{code}/certificate-artwork` | Remove it; the bib artwork is used again |
+| | `GET` | `/api/events/{code}/certificate-artwork` | Serve the stored image |
 
 ### Races
 | | Method | Path | Purpose |
@@ -752,6 +798,32 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `DELETE` | `/api/participants/{pid}` | Remove a runner; their reads are kept |
 | 🔒 | `POST` | `/api/events/{code}/participants/{bib}/dnf` | Mark DNF |
 
+### Entries
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `POST` | `/api/events/{code}/register` | Enter a race |
+| 🔒 | `GET` | `/api/me/registrations` | Your own entries |
+| 🔒 | `POST` | `/api/registrations/{reg_id}/withdraw` | Withdraw; an organiser may withdraw anyone's |
+| 🔒 | `GET` | `/api/events/{code}/registrations` | Every entry for a race |
+| 🔒 | `PATCH` | `/api/registrations/{reg_id}` | Confirm (needs a bib), reject or reopen |
+
+### Messages
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `POST` | `/api/messages` | Contact form; saved first, emailed second |
+| 🔒 | `GET` | `/api/messages` | The inbox, newest first |
+| 🔒 | `PATCH` | `/api/messages/{msg_id}` | Mark done or unread |
+| 🔒 | `GET` | `/api/mail/status` | Whether SMTP is configured, and where copies go |
+
+### Visitors
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `GET` | `/api/analytics` | Visits, visitors, pages, races, referrers, devices |
+| ⭐ | `POST` | `/api/analytics/prune` | Delete rows past the retention window |
+
 ### Reads and results
 | | Method | Path | Purpose |
 |---|---|---|---|
@@ -759,6 +831,7 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `GET` | `/api/events/{code}/reads` | Raw audit log |
 | 🔒 | `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
 | | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
+| 🔒 | `GET` | `/api/me/record` | Your races, points and badges, derived on request |
 
 ## 7. Screens
 
@@ -770,6 +843,9 @@ the role. Interactive docs at `/docs` while the server runs.
 | Checkpoint capture | `/checkpoint.html` | Volunteer | no |
 | Live results | `/results.html#<code>` | Public | no |
 | Finisher card | `/certificate.html#<code>/<bib>` | Runner | no |
+| My running | `/me.html` | Runner | yes |
+| Create an account | `/signup.html` | Runner | no |
+| Sign in | `/login.html` | Operator or runner | no |
 
 ---
 
@@ -882,15 +958,29 @@ None of these require a data-model change; all are additive.
 
 ## 11. Verification performed
 
+> These documents are checked against the source, not trusted. Run
+> `python tools/check_docs.py` after changing the API: it fails if a route,
+> page or environment variable is undocumented, if a requirement number is
+> duplicated, if a README section is missing from the contents, or if a claim
+> has been contradicted by the code. It has caught all four.
+
 Everything below was run against a real browser or a live server, not reasoned
-about. Anything not listed here is unverified.
+about. Anything not listed here is unverified. At the last count the suites
+carry **180 assertions**, all passing, and each one is repeatable: they reset
+the accounts and rows they touch, because a suite that only passes the first
+time is a suite that will lie to you on the second.
 
 | Area | Method | Result |
 |---|---|---|
-| **Admin gate** | 19 protected routes called with no token | all `401` |
-| | same routes called with the token | none `401` |
-| | 7 public routes called with no token | none `401` |
-| | a wrong token | `401` |
+| **Authorisation** | 50 checks over the API | anonymous refused `401`; an admin refused event creation and member management `403`; a super admin allowed |
+| | password handling | wrong password `401` with the same message as an unknown user; change requires the current one and ends other sessions |
+| | session lifecycle | disabling an account cuts it off mid-request; sign-out revokes; cookie `HttpOnly` and `SameSite=Lax` |
+| | the last super admin | cannot be demoted, disabled or deleted, by themselves or anyone |
+| **Roles in the browser** | Chromium, 36 checks across all three roles | a runner sees no Members tab and no create-race form, and `/admin.html` is not served to them at all |
+| **Runner accounts** | 53 checks | sign-up cannot set its own role; entries are requests until confirmed; confirming needs an unused bib and creates the start-list entry; withdrawing removes it |
+| **Points** | purpose-built two-runner race | winner 40 (10 finish + 5 km + 25 overall), second 15; the breakdown returned with the total |
+| **Contact form** | with no SMTP configured | message stored, response honest that mail is not set up, inbox refused to the public and to runners |
+| **Visitors** | 26 checks | crawlers and static files not counted; a repeat visitor counted once a day; no IP or user-agent column; yesterday's hash differs from today's |
 | **Runner entry** | Chromium, 13 checks | keyboard entry, bib auto-advance, suggestions, inline duplicate refusal, removal |
 | **Share card** | Chromium, 21 checks across both states | export exactly 1080 × 1350; name and time legible in a 200 px thumbnail |
 | | photo | cover-fit, circular, removable, never uploaded |
@@ -903,8 +993,23 @@ about. Anything not listed here is unverified.
 | **Multi-race ranking** | purpose-built 5K + 10K event, 6 checks | 5K winner not ranked against the 10K field; staggered start honoured |
 | **Uploads** | SVG content named `.png`, declared `image/png` | rejected `422` by magic-byte sniff |
 | **Escaping** | `<img src=x onerror=…>` as a runner name | rendered inert |
-| **Migrations** | applied to the existing seeded database | no data loss |
+| **Migrations** | booted against a database with the **old** schema — columns and index dropped, a legacy row left behind | columns restored, booleans backfilled, seeding not repeated; reproduces the outage below without the fix |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
+
+### One that got through
+
+On 2026-09-28 a deploy took the live site down: every route `500`,
+`FUNCTION_INVOCATION_FAILED`. Account seeding queries the users table, and the
+migration adding `users.email` had been placed **after** it. On a fresh database
+`create_all` builds the whole table, so every local test passed; on a database
+that predates the column the seed query selects one that does not exist, the
+import fails, and the application goes with it.
+
+The rule that came out of it, and the test that now enforces it: **schema
+migrations run before anything that reads the schema**, and a new column with
+`nullable=False` is backfilled, because `ADD COLUMN` leaves existing rows
+`NULL` while the response model says otherwise. Testing only against a fresh
+database tests the one case production is never in.
 
 ### Not verified
 
@@ -930,6 +1035,7 @@ Required environment:
 | `ANALYTICS_SALT` | *(derived)* | Salt for the daily visitor hash. Set it to a random value in production |
 | `CONTACT_EMAIL` | `sanjay.chhetri4u@gmail.com` | Where the contact form is emailed |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | *(unset)* | Mail credentials. Unset means messages are kept but not forwarded |
+| `SMTP_FROM` | `SMTP_USER` | The envelope sender, when it differs from the login |
 | `RACETIME_NO_DEMO` | *(unset)* | Set to skip creating the practice event |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
