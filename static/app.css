@@ -1150,7 +1150,10 @@ tr.racedivider .n { float: right; }
 .tabs {
   display: flex; gap: var(--s1);
   margin: var(--s5) 0 calc(-1px - var(--s1));
-  overflow-x: auto;                    /* a phone scrolls them sideways */
+  /* Wrap rather than scroll where there is room. With ten sections the strip
+     ran past the right edge and the last one was cut mid-word, which reads as
+     a broken layout rather than as "there is more this way". */
+  flex-wrap: wrap;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -1205,7 +1208,10 @@ button.quiet.danger:hover { color: var(--stop); background: rgba(221, 75, 57, .1
   /* Bleed the strip to the screen edges so the last tab is not clipped mid-word.
      The offset must match the body padding, which is --s3 at this width, not
      --pad -- using --pad overshot by 4px and the whole page scrolled sideways. */
-  .tabs { margin-left: calc(var(--s3) * -1); margin-right: calc(var(--s3) * -1);
+  /* On a phone there is no room to wrap ten tabs into readable rows, so the
+     strip scrolls sideways and bleeds to the screen edges instead. */
+  .tabs { flex-wrap: nowrap; overflow-x: auto;
+          margin-left: calc(var(--s3) * -1); margin-right: calc(var(--s3) * -1);
           padding: 0 var(--s3); }
 }
 
@@ -1483,10 +1489,16 @@ html[data-wallpaper="plain"] {
    max-width, so a background there stops at the text and leaves bare gutters
    down both sides of a wide screen. */
 html[data-wallpaper] {
-  background:
+  /* The solid colour is not decoration: a fixed-attachment gradient only
+     paints the viewport, so on a page taller than one screen -- and on the
+     rubber-band overscroll a phone does -- everything past it would be bare
+     white. The colour underneath means there is never nothing there. */
+  background-color: var(--sky-2);
+  background-image:
     radial-gradient(70vw 45vh at 68% 78%, var(--glow), transparent 68%),
     linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 70%);
   background-attachment: fixed, fixed;
+  background-repeat: no-repeat, no-repeat;
   min-height: 100%;
 }
 html[data-wallpaper] body { background: transparent; }
@@ -1643,3 +1655,142 @@ body.signin {
   background: var(--rule); min-width: 2px;
 }
 .anlists tr:first-child .barcell span { background: var(--paint); opacity: .8; }
+
+/* ---------- upcoming races ---------- */
+
+.sechead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--s4); margin-bottom: var(--s4);
+}
+.sechead h2 { margin: 0; }
+.upcoming, .contact { margin-bottom: var(--s6); }
+
+.eventcards {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+}
+.eventcard {
+  padding: var(--s5);
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-top: 3px solid var(--paint);
+  border-radius: var(--r3);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.eventcard h3 { margin: 0; font-size: 1.3rem; }
+.evwhen {
+  font-size: .78rem; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--paint);
+}
+.evwhere { margin: 0; color: var(--paper); font-size: .95rem; }
+.eventcard .note { margin: 0; }
+.evraces { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s1); }
+.evacts {
+  display: flex; align-items: center; gap: var(--s3);
+  margin-top: auto; padding-top: var(--s3);
+}
+.evacts button { width: auto; flex: 0 0 auto; }
+.note.tight { font-size: .8rem; margin: 0; }
+.opt { color: var(--muted); font-weight: 400; text-transform: none; }
+
+/* ---------- contact ---------- */
+
+.contact {
+  display: grid; gap: var(--s5);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: start;
+  padding: var(--s5);
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r3);
+}
+.contactcopy h2 { margin: 0 0 var(--s2); }
+.contactcopy p { margin: 0; }
+@media (max-width: 760px) {
+  .contact { grid-template-columns: 1fr; }
+}
+
+/* ---------- the entry dialog ---------- */
+
+.entrydialog {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: var(--s5);
+  background: var(--ink-2); color: var(--paper);
+  border: 1px solid var(--rule); border-radius: var(--r3);
+}
+.entrydialog::backdrop { background: rgba(0, 0, 0, .6); }
+.entrydialog h3 { margin: 0 0 var(--s1); }
+.entrydialog .modal-acts { display: flex; gap: var(--s2); justify-content: flex-end; }
+.entrydialog .modal-acts button { width: auto; flex: 0 0 auto; }
+
+/* ---------- a runner's own page ---------- */
+
+.wide-box { max-width: 30rem; }
+
+.runcard {
+  padding: var(--s4) var(--s5);
+  background: var(--ink-2); border: 1px solid var(--rule);
+  border-radius: var(--r3); margin-bottom: var(--s3);
+}
+.runhead {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--s4);
+}
+.runhead h3 { margin: 0; font-size: 1.15rem; }
+.runhead .note { margin: var(--s1) 0 0; }
+.runpts { text-align: right; flex: none; }
+.runpts .v {
+  display: block; font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 1.7rem; line-height: 1; color: var(--paint);
+}
+.runpts .k { font-size: .7rem; color: var(--muted); text-transform: uppercase; }
+.runbody {
+  display: flex; align-items: center; gap: var(--s4);
+  flex-wrap: wrap; margin-top: var(--s3);
+}
+.runtime {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.runmeta { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.runacts {
+  display: flex; align-items: center; gap: var(--s4);
+  margin-top: var(--s3); padding-top: var(--s3);
+  border-top: 1px solid var(--rule-soft);
+}
+.runacts button { width: auto; flex: 0 0 auto; }
+.why { margin: var(--s2) 0 0; font-size: .8rem; }
+
+.badges {
+  display: grid; gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+.badge-card {
+  padding: var(--s4); border-radius: var(--r2);
+  background: var(--ink); border: 1px solid var(--rule);
+  opacity: .5;
+}
+.badge-card.earned {
+  opacity: 1; border-color: var(--paint);
+  background: linear-gradient(160deg, rgba(242, 197, 0, .10), transparent 60%),
+              var(--ink);
+}
+.badge-card .bt { font-weight: 700; color: var(--paper); }
+.badge-card .bd { font-size: .85rem; color: var(--muted); margin-top: var(--s1); }
+.badge-card .bm {
+  margin-top: var(--s2); font-size: .7rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--paint);
+}
+
+/* A checkbox that reads as a label, not as a field with a label beside it. */
+label.check {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  margin: 0; font-size: .9rem; color: var(--paper);
+  flex: 0 1 auto; cursor: pointer;
+}
+label.check input { width: auto; flex: none; margin: 0; }
+
+/* A handled message steps back without disappearing. */
+.runcard.done { opacity: .58; }
+.runcard.done:hover { opacity: 1; }
+
+/* The bib box in the entries table stays narrow -- it holds two digits. */
+.bibin { width: 4.5rem; padding: var(--s1) var(--s2); }

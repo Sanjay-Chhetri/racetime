@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<meta name="robots" content="noindex">
+<title>My running · RaceTime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="wide">
+
+<header class="sitebar">
+  <a class="brand" href="/">
+    <span class="brandmark">R</span>
+    <span class="brandname">RaceTime</span>
+  </a>
+  <nav class="sitenav">
+    <span id="wallpaper"></span>
+    <span class="who"><span class="nm" id="whoName"></span></span>
+    <button id="signOut" class="linkbtn">Sign out</button>
+  </nav>
+</header>
+
+<h1 id="hello">My running</h1>
+
+<div class="scoreboard" id="totals"></div>
+
+<nav class="tabs noprint" id="tabs" role="tablist" aria-label="My running">
+  <button class="tab on" role="tab" data-tab="runs" id="tab-runs"
+          aria-controls="panel-runs" aria-selected="true">Races
+    <span class="tab-n" id="nRuns"></span></button>
+  <button class="tab" role="tab" data-tab="badges" id="tab-badges"
+          aria-controls="panel-badges" aria-selected="false">Achievements
+    <span class="tab-n" id="nBadges"></span></button>
+  <button class="tab" role="tab" data-tab="entries" id="tab-entries"
+          aria-controls="panel-entries" aria-selected="false">My entries
+    <span class="tab-n" id="nEntries"></span></button>
+  <button class="tab" role="tab" data-tab="profile" id="tab-profile"
+          aria-controls="panel-profile" aria-selected="false">Profile</button>
+</nav>
+
+<section class="panel tabpanel" role="tabpanel" id="panel-runs" data-tab="runs"
+         aria-labelledby="tab-runs">
+  <div id="runList"></div>
+  <details style="margin-top:1.2rem">
+    <summary class="note">How points work</summary>
+    <div class="note" id="scoring" style="margin-top:.6rem"></div>
+  </details>
+</section>
+
+<section class="panel tabpanel" role="tabpanel" hidden id="panel-badges"
+         data-tab="badges" aria-labelledby="tab-badges">
+  <div class="badges" id="badgeList"></div>
+</section>
+
+<section class="panel tabpanel" role="tabpanel" hidden id="panel-entries"
+         data-tab="entries" aria-labelledby="tab-entries">
+  <p class="note">Races you have entered. An entry is a request until an
+  organiser confirms it and gives you a bib.</p>
+  <div id="entryList"></div>
+  <p style="margin-top:1rem"><a href="/#upcoming">See upcoming races &rarr;</a></p>
+</section>
+
+<section class="panel tabpanel" role="tabpanel" hidden id="panel-profile"
+         data-tab="profile" aria-labelledby="tab-profile">
+  <p class="note">This is what appears on a start list and on your finisher
+  certificate, so put the name you want printed.</p>
+  <div class="row">
+    <div><label for="pfName">Name</label>
+      <input id="pfName" autocapitalize="words"></div>
+    <div><label for="pfEmail">Email</label>
+      <input id="pfEmail" type="email" autocapitalize="none"></div>
+    <div><label for="pfPhone">Phone</label>
+      <input id="pfPhone" inputmode="tel"></div>
+    <div><label for="pfTown">Where you are from</label>
+      <input id="pfTown" autocapitalize="words" placeholder="Kalimpong"></div>
+    <button id="pfSave" class="primary narrow">Save</button>
+  </div>
+  <p class="fieldErr" id="pfErr" hidden></p>
+
+  <h3 style="margin:1.6rem 0 .2rem">Change your password</h3>
+  <div class="row">
+    <div><label for="pwCurrent">Current password</label>
+      <input id="pwCurrent" type="password" autocomplete="current-password"></div>
+    <div><label for="pwNew">New password</label>
+      <input id="pwNew" type="password" autocomplete="new-password"
+             placeholder="at least 8 characters"></div>
+    <button id="pwSave" class="primary narrow">Change</button>
+  </div>
+  <p class="fieldErr" id="pwErr" hidden></p>
+</section>
+
+<script type="module" src="/js/me.js"></script>
+</body>
+</html>

@@ -115,6 +115,15 @@ class EventOut(BaseModel):
     badge_mode: Optional[str] = None
     badge_text: Optional[str] = None
     cert_fit: Optional[str] = None
+    # The scheduling fields, so race admin can show what it is editing. Without
+    # these the "when and where" form loaded blank every time and quietly wiped
+    # the values on save.
+    starts_at: Optional[UtcDatetime] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    entry_note: Optional[str] = None
+    is_published: bool = False
+    registration_open: bool = False
     races: List[RaceOut] = []
     checkpoints: List[CheckpointOut] = []
 
@@ -185,10 +194,18 @@ class LoginIn(BaseModel):
 
 
 class UserOut(BaseModel):
-    """What is safe to send about an account. No hash, ever."""
+    """What is safe to send about an account. No hash, ever.
+
+    The contact details go out only to the account's owner (via /auth/me and
+    /me/profile) and to a super admin managing members -- the two endpoints
+    that serve this model. They are never part of a public payload.
+    """
     id: int
     username: str
     display_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    home_town: Optional[str] = None
     role: str
     is_active: bool
     must_change_password: bool
@@ -230,3 +247,111 @@ class UserPatch(BaseModel):
 class PasswordChangeIn(BaseModel):
     current_password: str = Field(min_length=1, max_length=200)
     new_password: str = Field(min_length=8, max_length=200)
+
+
+# --------------------------------------------------------------------------
+# Runners
+# --------------------------------------------------------------------------
+
+class SignUpIn(BaseModel):
+    """Opening an account as a runner. No role field -- that is not the
+    signer-up's to choose, and accepting it from the body is how a public form
+    becomes an admin account."""
+    username: str = Field(min_length=2, max_length=40, pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=200)
+    display_name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3, max_length=190)
+    phone: Optional[str] = Field(None, max_length=32)
+    home_town: Optional[str] = Field(None, max_length=80)
+
+
+class ProfileIn(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=80)
+    email: Optional[str] = Field(None, max_length=190)
+    phone: Optional[str] = Field(None, max_length=32)
+    home_town: Optional[str] = Field(None, max_length=80)
+
+
+class EventScheduleIn(BaseModel):
+    """The parts of an event an entrant sees before race day."""
+    starts_at: Optional[datetime] = None
+    location: Optional[str] = Field(None, max_length=160)
+    description: Optional[str] = Field(None, max_length=2000)
+    entry_note: Optional[str] = Field(None, max_length=400)
+    is_published: Optional[bool] = None
+    registration_open: Optional[bool] = None
+
+
+class EventPublicOut(BaseModel):
+    """An event as the public sees it. No gun time, no branding internals."""
+    code: str
+    name: str
+    starts_at: Optional[UtcDatetime] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    entry_note: Optional[str] = None
+    registration_open: bool = False
+    races: List[RaceOut] = []
+    entrants: int = 0
+    # Filled in for a signed-in runner: their own registration, if any.
+    my_status: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RegistrationIn(BaseModel):
+    race_id: Optional[int] = None
+    category: Optional[str] = Field(None, max_length=60)
+    gender: Optional[str] = Field(None, max_length=16)
+    emergency_contact: Optional[str] = Field(None, max_length=160)
+    note: Optional[str] = Field(None, max_length=400)
+
+
+class RegistrationOut(BaseModel):
+    id: int
+    event_code: str
+    event_name: str
+    race_id: Optional[int] = None
+    race: Optional[str] = None
+    status: str
+    category: Optional[str] = None
+    gender: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    note: Optional[str] = None
+    created_at: Optional[UtcDatetime] = None
+    # Who it is, for the organiser's list.
+    runner: Optional[str] = None
+    username: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    bib: Optional[str] = None
+
+
+class RegistrationDecision(BaseModel):
+    status: Literal["pending", "confirmed", "withdrawn", "rejected"]
+    # Required when confirming: a confirmed entry is a bib on a start list.
+    bib: Optional[str] = Field(None, max_length=24)
+    race_id: Optional[int] = None
+
+
+class MessageIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=190)
+    subject: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class MessageOut(BaseModel):
+    id: int
+    created_at: Optional[UtcDatetime] = None
+    name: str
+    email: str
+    subject: str
+    body: str
+    emailed: bool
+    handled: bool
+    username: Optional[str] = None
+
+    class Config:
+        from_attributes = True

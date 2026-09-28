@@ -590,6 +590,81 @@ powers of the race director.
   It would need a script on the page reporting back, which is the thing being
   avoided.
 
+### FR-14 — Runner accounts
+
+- **FR-14.1** A third role, `runner`, sits **below** `admin` in the same
+  ordered list. Because every existing endpoint already demanded "admin or
+  above", adding it required no change to a single one of them.
+- **FR-14.2** Anyone may open a runner account at `/signup.html`. The role is
+  **hard-coded on the server, never read from the body** — a public form that
+  accepted a role field would be a public form for making super admins.
+- **FR-14.3** Usernames and emails are unique; emails are lower-cased on the
+  way in so one address cannot become two accounts.
+- **FR-14.4** `/admin.html` checks the **role**, not merely that somebody is
+  signed in. A runner is redirected to their own page rather than asked to sign
+  in again — they already are.
+- **FR-14.5** A runner's page shows their races, finish times, placings, points,
+  badges, certificates and entries. Nothing is stored: it is derived from reads
+  on every request, the same as the leaderboard, so voiding a bad scan corrects
+  a total with no recount job.
+
+### FR-15 — Points and achievements
+
+- **FR-15.1** Finishing earns 10 points, plus 1 a kilometre. First overall adds
+  25, second 15, third 10. Winning a category adds 10; first of a gender, 8.
+- **FR-15.2** Placing points use the **same test as the finisher card** — top
+  three and never in the bottom half of the field — so a field of four does not
+  mint three champions, and a badge on a card never disagrees with a total.
+- **FR-15.3** Every score is returned **with its reasons**, so a total is shown
+  as a breakdown rather than a number a runner has to take on trust.
+- **FR-15.4** Eight badges, from a first finish to a hundred kilometres. All
+  derived; none stored.
+
+### FR-16 — Upcoming races and entries
+
+- **FR-16.1** An event carries `starts_at`, `location`, `description`,
+  `entry_note`, `is_published` and `registration_open`. `starts_at` is the date
+  on the poster; `start_time` remains the gun, fired on the morning.
+- **FR-16.2** **Nothing is public until published**, so a race can be set up
+  over several sittings without half of it appearing on the site.
+- **FR-16.3** Entries cannot be opened on an unpublished race — the interface
+  refuses it rather than accepting entries nobody can find.
+- **FR-16.4** `GET /api/events/upcoming` is public and lists published events
+  soonest first, with the entry count and — for a signed-in runner — their own
+  status.
+- **FR-16.5** **A registration is a request; a Participant is a bib.** Keeping
+  them apart is what lets an organiser take entries for weeks, then decide the
+  field, assign numbers and print. Confirming a registration is the moment the
+  start-list entry is created, linked to the account.
+- **FR-16.6** Confirming **requires a bib**, and refuses one already taken.
+- **FR-16.7** Withdrawing, rejecting or un-confirming **removes the start-list
+  entry**, so a race never runs with somebody entered who has pulled out.
+- **FR-16.8** A runner may withdraw their own entry; an organiser may withdraw
+  anyone's. One entry per person per event — changing your mind edits the row.
+- **FR-16.9** An emergency contact is collected. It is a name and a number to
+  ring, not a medical record, and that is the only reason it is kept.
+
+### FR-17 — Contact form
+
+- **FR-17.1** Anyone may write in, signed in or not.
+- **FR-17.2** The message is **written to the database first and emailed
+  second**. Mail needs credentials that may not be set; a form that silently
+  drops what somebody wrote because SMTP was misconfigured is worse than no
+  form. The admin screen states plainly whether mail is configured.
+- **FR-17.3** Email goes to `CONTACT_EMAIL`, with the sender in `Reply-To` and
+  never in `From` — the address is unverified, and forging `From` is how mail
+  ends up in a spam folder.
+- **FR-17.4** The inbox is readable by any signed-in operator and by nobody
+  else.
+
+### FR-18 — The practice event
+
+- **FR-18.1** A published `demo` event is created once on an empty database:
+  three weeks out, two races, entries open. Created **only if absent** and never
+  touched again, so an organiser can rename, edit or delete it without it
+  reappearing on the next deploy. `RACETIME_NO_DEMO=1` skips it.
+- **FR-18.2** Failing to create it never prevents the app from starting.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -853,6 +928,9 @@ Required environment:
 | `DATABASE_URL` | `sqlite:///./racetime.db` | Postgres URL in production |
 | `RACETIME_SEED_USERS` | *(unset)* | First-run accounts, `name:password:role,…`. Only consulted when the users table is empty |
 | `ANALYTICS_SALT` | *(derived)* | Salt for the daily visitor hash. Set it to a random value in production |
+| `CONTACT_EMAIL` | `sanjay.chhetri4u@gmail.com` | Where the contact form is emailed |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | *(unset)* | Mail credentials. Unset means messages are kept but not forwarded |
+| `RACETIME_NO_DEMO` | *(unset)* | Set to skip creating the practice event |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
 HTTPS is mandatory in any deployment: phone cameras will not start without it.

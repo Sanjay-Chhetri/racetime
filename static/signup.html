@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<title>Create an account · RaceTime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="signin">
+
+<main class="signinbox wide-box">
+  <a class="brand" href="/">
+    <span class="brandmark">R</span>
+    <span class="brandname">RaceTime</span>
+  </a>
+
+  <h1>Create an account</h1>
+  <p class="note">For runners. Enter races, keep your results and certificates
+  in one place, and collect points as you go. You do <strong>not</strong> need
+  an account to look at results &mdash; those are open to everyone.</p>
+
+  <form id="signupForm" autocomplete="on">
+    <label for="display_name">Your name</label>
+    <input id="display_name" autocapitalize="words" autocomplete="name" required
+           placeholder="Tenzing Bhutia">
+    <p class="note tight">This is what appears on a start list and on your
+    certificate.</p>
+
+    <label for="email">Email</label>
+    <input id="email" type="email" autocapitalize="none" autocomplete="email" required>
+
+    <label for="username">Username</label>
+    <input id="username" autocapitalize="none" autocomplete="username" required
+           placeholder="tenzing">
+
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="new-password" required
+           placeholder="at least 8 characters">
+
+    <div class="row" style="margin-top:.4rem">
+      <div><label for="phone">Phone <span class="opt">optional</span></label>
+        <input id="phone" inputmode="tel" autocomplete="tel"></div>
+      <div><label for="home_town">Where you are from <span class="opt">optional</span></label>
+        <input id="home_town" autocapitalize="words" placeholder="Kalimpong"></div>
+    </div>
+
+    <p class="fieldErr" id="err" hidden></p>
+    <button id="submit" class="primary wide" type="submit">Create account</button>
+  </form>
+
+  <p class="note signinfoot">
+    Already have one? <a href="/login.html">Sign in</a>.
+  </p>
+</main>
+
+<div class="signinwall"><span id="wallpaper"></span></div>
+
+<script type="module" src="/js/signup.js"></script>
+</body>
+</html>

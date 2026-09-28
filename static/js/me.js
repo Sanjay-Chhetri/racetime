@@ -1,0 +1,292 @@
+/* A runner's own page: their races, their points, what they have earned.
+
+   Everything here is computed from reads on the server when asked for, the
+   same as the leaderboard. Nothing is cached and nothing is stored, so a
+   corrected scan changes a total the next time this loads rather than leaving
+   a points table quietly disagreeing with the results it came from. */
+
+import { esc, ok, fail, withBusy } from '/js/ui.js';
+import { mountPicker } from '/js/theme.js';
+
+const $ = id => document.getElementById(id);
+
+const api = async (path, opts) => {
+  let res;
+  try {
+    res = await fetch('/api' + path, opts);
+  } catch {
+    throw new Error('Could not reach the server. Check your connection.');
+  }
+  if (res.status === 401) {
+    location.href = '/login.html?next=' + encodeURIComponent('/me.html');
+    throw new Error('Signing in…');
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  if (!res.ok) {
+    const d = body && body.detail;
+    throw new Error(typeof d === 'string' ? d
+      : Array.isArray(d) ? d.map(x => x.msg || x).join('; ')
+      : `The server returned ${res.status}.`);
+  }
+  return body;
+};
+
+const json = (method, body) => ({
+  method, headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+const dur = s => {
+  if (s == null) return '—';
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
+
+const ordinal = n => {
+  if (n == null) return '';
+  const t = n % 100;
+  return n + ((t >= 11 && t <= 13) ? 'th'
+    : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'));
+};
+
+const when = iso => iso
+  ? new Date(iso).toLocaleDateString(undefined,
+      { day: 'numeric', month: 'short', year: 'numeric' })
+  : '';
+
+/* ---------- tabs ---------- */
+
+const TABS = ['runs', 'badges', 'entries', 'profile'];
+
+function showTab(name) {
+  if (!TABS.includes(name)) name = 'runs';
+  document.querySelectorAll('.tab').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  });
+  document.querySelectorAll('.tabpanel').forEach(p => {
+    p.hidden = p.dataset.tab !== name;
+  });
+  location.hash = name;
+  if (name === 'entries') loadEntries();
+}
+
+document.querySelectorAll('.tab').forEach(b => {
+  b.onclick = () => showTab(b.dataset.tab);
+});
+
+/* ---------- the record ---------- */
+
+const STATUS = {
+  finished: ['go', 'finished'],
+  on_course: ['wait', 'still running'],
+  dnf: ['stop', 'did not finish'],
+  not_started: ['', 'no sightings'],
+};
+
+async function loadRecord() {
+  let r;
+  try {
+    r = await api('/me/record');
+  } catch (e) {
+    $('runList').innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+
+  $('totals').innerHTML = [
+    { v: r.points, k: 'points' },
+    { v: r.stats.finishes, k: r.stats.finishes === 1 ? 'race finished' : 'races finished' },
+    { v: r.stats.km, k: 'km raced' },
+    { v: r.stats.podiums, k: r.stats.podiums === 1 ? 'podium' : 'podiums' },
+  ].map(c => `<div class="score"><span class="v">${esc(String(c.v))}</span>` +
+             `<span class="k">${esc(c.k)}</span></div>`).join('');
+
+  $('nRuns').textContent = r.runs.length || '';
+  const earned = r.badges.filter(b => b.earned).length;
+  $('nBadges').textContent = earned ? `${earned}/${r.badges.length}` : '';
+
+  if (!r.runs.length) {
+    $('runList').innerHTML =
+      `<div class="empty"><div class="t">No races yet</div>
+       <div class="h">Enter one from the <a href="/#upcoming">home page</a>.
+       Once you have run it, your time and certificate appear here.</div></div>`;
+  } else {
+    $('runList').innerHTML = r.runs.map(run => {
+      const [tone, label] = STATUS[run.status] || ['', run.status];
+      const place = run.position
+        ? `${ordinal(run.position)} of ${run.field_size}` : '';
+      return `<article class="runcard">
+        <div class="runhead">
+          <div>
+            <h3>${esc(run.event_name)}</h3>
+            <p class="note">${esc([when(run.date), run.race,
+              run.distance_km ? run.distance_km + ' km' : null]
+              .filter(Boolean).join(' · '))}</p>
+          </div>
+          <div class="runpts"><span class="v">${run.points}</span>
+            <span class="k">points</span></div>
+        </div>
+        <div class="runbody">
+          <div class="runtime">${run.status === 'finished'
+            ? esc(dur(run.finish_seconds))
+            : `<span class="tag ${tone}">${esc(label)}</span>`}</div>
+          <div class="runmeta">
+            ${place ? `<span class="tag">${esc(place)}</span>` : ''}
+            ${run.category_position && run.category
+              ? `<span class="tag">${esc(ordinal(run.category_position))} in ${esc(run.category)}</span>`
+              : ''}
+            <span class="tag">Bib ${esc(run.bib)}</span>
+          </div>
+        </div>
+        <div class="runacts">
+          ${run.certificate
+            ? `<a href="${esc(run.certificate)}">Finisher certificate</a>` : ''}
+          <a href="/results.html#${encodeURIComponent(run.event_code)}">Full results</a>
+        </div>
+        ${run.points_why.length
+          ? `<p class="note why">${esc(run.points_why.join(' · '))}</p>` : ''}
+      </article>`;
+    }).join('');
+  }
+
+  $('badgeList').innerHTML = r.badges.map(b => `
+    <div class="badge-card ${b.earned ? 'earned' : ''}">
+      <div class="bt">${esc(b.name)}</div>
+      <div class="bd">${esc(b.detail)}</div>
+      ${b.earned ? '<div class="bm">Earned</div>' : ''}
+    </div>`).join('');
+
+  const s = r.scoring;
+  $('scoring').innerHTML =
+    `Finishing a race earns ${s.finish} points, plus ${s.per_km} a kilometre. ` +
+    `Winning adds ${s.overall['1']}, second ${s.overall['2']}, third ` +
+    `${s.overall['3']} — but only in a field big enough for the placing to ` +
+    `mean something, the same rule the finisher card uses. Winning your ` +
+    `category adds ${s.category_win}, and being first of your gender ` +
+    `${s.gender_win}.`;
+}
+
+/* ---------- entries ---------- */
+
+const ENTRY_TONE = {
+  pending: ['wait', 'waiting for the organiser'],
+  confirmed: ['go', 'confirmed'],
+  withdrawn: ['', 'withdrawn'],
+  rejected: ['stop', 'not accepted'],
+};
+
+async function loadEntries() {
+  let rows;
+  try {
+    rows = await api('/me/registrations');
+  } catch (e) {
+    $('entryList').innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+  $('nEntries').textContent =
+    rows.filter(r => r.status === 'pending' || r.status === 'confirmed').length || '';
+
+  if (!rows.length) {
+    $('entryList').innerHTML =
+      '<div class="empty"><div class="t">No entries yet</div></div>';
+    return;
+  }
+
+  $('entryList').innerHTML = rows.map(r => {
+    const [tone, label] = ENTRY_TONE[r.status] || ['', r.status];
+    return `<article class="runcard">
+      <div class="runhead">
+        <div>
+          <h3>${esc(r.event_name)}</h3>
+          <p class="note">${esc([r.race, r.category].filter(Boolean).join(' · '))}</p>
+        </div>
+        <span class="tag ${tone}">${esc(label)}</span>
+      </div>
+      <div class="runacts">
+        ${r.bib ? `<span class="tag">Bib ${esc(r.bib)}</span>` : ''}
+        ${(r.status === 'pending' || r.status === 'confirmed')
+          ? `<button class="quiet danger" data-withdraw="${r.id}">Withdraw</button>` : ''}
+      </div>
+    </article>`;
+  }).join('');
+
+  $('entryList').querySelectorAll('[data-withdraw]').forEach(b => {
+    b.onclick = () => withBusy(b, async () => {
+      try {
+        await api(`/registrations/${b.dataset.withdraw}/withdraw`, { method: 'POST' });
+        ok('Entry withdrawn.');
+        loadEntries();
+        loadRecord();
+      } catch (e) { fail(e.message); }
+    });
+  });
+}
+
+/* ---------- profile ---------- */
+
+async function loadProfile() {
+  const me = await api('/auth/me');
+  const u = me.user;
+  $('whoName').textContent = u.display_name || u.username;
+  $('hello').textContent = `${(u.display_name || u.username).split(' ')[0]}'s running`;
+  $('pfName').value = u.display_name || '';
+  $('pfEmail').value = u.email || '';
+  $('pfPhone').value = u.phone || '';
+  $('pfTown').value = u.home_town || '';
+
+  // An operator who lands here has an admin screen to be at instead.
+  if (u.role !== 'runner') {
+    document.querySelector('.sitenav').insertAdjacentHTML('afterbegin',
+      '<a href="/admin.html">Race admin</a>');
+  }
+}
+
+$('pfSave').onclick = e => withBusy(e.currentTarget, async () => {
+  $('pfErr').hidden = true;
+  try {
+    await api('/me/profile', json('PATCH', {
+      display_name: $('pfName').value.trim(),
+      email: $('pfEmail').value.trim(),
+      phone: $('pfPhone').value.trim(),
+      home_town: $('pfTown').value.trim(),
+    }));
+    ok('Saved.');
+    loadProfile();
+  } catch (err) {
+    $('pfErr').textContent = err.message;
+    $('pfErr').hidden = false;
+  }
+});
+
+$('pwSave').onclick = e => withBusy(e.currentTarget, async () => {
+  $('pwErr').hidden = true;
+  try {
+    await api('/auth/password', json('POST', {
+      current_password: $('pwCurrent').value,
+      new_password: $('pwNew').value,
+    }));
+    ok('Password changed. Any other browser you were signed in on is signed out.');
+    $('pwCurrent').value = '';
+    $('pwNew').value = '';
+  } catch (err) {
+    $('pwErr').textContent = err.message;
+    $('pwErr').hidden = false;
+  }
+});
+
+$('signOut').onclick = async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* going anyway */ }
+  location.href = '/';
+};
+
+/* ---------- go ---------- */
+
+mountPicker($('wallpaper'));
+showTab(location.hash.slice(1) || 'runs');
+loadProfile().then(loadRecord).catch(() => { /* api() has redirected */ });

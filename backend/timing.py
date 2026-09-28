@@ -171,3 +171,28 @@ def compute_results(
         r["bib"],
     ))
     return rows
+
+
+def event_result_rows(db, event) -> List[dict]:
+    """Every runner in an event, ranked inside their own race.
+
+    Extracted so the results endpoint and a runner's own record cannot drift
+    apart: two copies of "how an event is scored" would eventually disagree,
+    and the one nobody is looking at would be the wrong one.
+    """
+    reads = db.query(Read).filter(Read.event_id == event.id).all()
+
+    rows: List[dict] = []
+    for race in event.races:
+        rows.extend(compute_results(
+            event, race.checkpoints, race.participants, reads, race=race))
+
+    # Anyone still unassigned -- possible only if a race was deleted out from
+    # under them -- is timed against the event's own checkpoints so they never
+    # silently vanish.
+    loose = [p for p in event.participants if p.race_id is None]
+    if loose:
+        rows.extend(compute_results(
+            event, [c for c in event.checkpoints if c.race_id is None],
+            loose, reads))
+    return rows

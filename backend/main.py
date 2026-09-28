@@ -7,7 +7,7 @@ import csv
 import io
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,10 +23,10 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import analytics, auth, models, schemas
+from . import achievements, analytics, auth, mail, models, schemas
 from .db import Base, SessionLocal, engine, get_db
 from .models import Checkpoint, Event, Participant, Race, Read, utcnow
-from .timing import compute_results
+from .timing import compute_results, event_result_rows
 
 Base.metadata.create_all(bind=engine)
 
@@ -146,6 +146,65 @@ _add_missing_columns("events", {
     "tagline": "VARCHAR(160)",
     "bib_style": "VARCHAR(8)",
 })
+def _seed_demo_event():
+    """A published race with entries open, so the site is not empty on day one.
+
+    Created once, only if it does not already exist, and never touched again --
+    so an organiser can rename it, edit it or delete it without it coming back
+    on the next deploy. RACETIME_NO_DEMO=1 skips it.
+    """
+    if os.getenv("RACETIME_NO_DEMO", "").strip():
+        return
+    db = SessionLocal()
+    try:
+        code = "demo"
+        if db.query(Event).filter(Event.code == code).first():
+            return
+        ev = Event(
+            code=code,
+            name="Pedong Test Run",
+            # Three weeks out, at a plausible hill-race hour rather than
+            # whatever minute the server happened to boot.
+            starts_at=(utcnow() + timedelta(days=21)).replace(
+                hour=1, minute=30, second=0, microsecond=0),   # 07:00 IST
+            location="Pedong, Kalimpong",
+            description=(
+                "A test race for trying RaceTime out end to end -- entering, "
+                "bibs, scanning at the checkpoint, live results and a finisher "
+                "certificate. Enter it, and nothing bad happens."
+            ),
+            entry_note="A practice event. Enter and withdraw as much as you like.",
+            is_published=True,
+            registration_open=True,
+            tagline="A practice race",
+        )
+        db.add(ev)
+        db.flush()
+
+        short = Race(event_id=ev.id, name="2K", distance_km=2, sequence=1)
+        long_ = Race(event_id=ev.id, name="5K", distance_km=5, sequence=2)
+        db.add_all([short, long_])
+        db.flush()
+
+        db.add_all([
+            Checkpoint(event_id=ev.id, race_id=short.id, name="2K Finish",
+                       distance_km=2, sequence=1, kind="finish"),
+            Checkpoint(event_id=ev.id, race_id=long_.id, name="5K Turn",
+                       distance_km=2.5, sequence=1, kind="split"),
+            Checkpoint(event_id=ev.id, race_id=long_.id, name="5K Finish",
+                       distance_km=5, sequence=2, kind="finish"),
+        ])
+        db.commit()
+        print("  Created the 'demo' practice event (RACETIME_NO_DEMO=1 to skip).")
+    except Exception as e:                      # noqa: BLE001
+        # A demo race is a nicety. It must never be the reason a deployment
+        # fails to boot.
+        db.rollback()
+        print(f"  Could not create the demo event: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+
 def _seed_accounts():
     """Create the starting operator accounts if the table is empty."""
     db = SessionLocal()
@@ -156,6 +215,22 @@ def _seed_accounts():
 
 
 _seed_accounts()
+_seed_demo_event()
+
+_add_missing_columns("events", {
+    "starts_at": "TIMESTAMP",
+    "location": "VARCHAR(160)",
+    "description": "VARCHAR(2000)",
+    "is_published": "BOOLEAN",
+    "registration_open": "BOOLEAN",
+    "entry_note": "VARCHAR(400)",
+})
+_add_missing_columns("participants", {"user_id": "INTEGER"})
+_add_missing_columns("users", {
+    "email": "VARCHAR(190)",
+    "phone": "VARCHAR(32)",
+    "home_town": "VARCHAR(80)",
+})
 
 _add_missing_columns("checkpoints", {"race_id": "INTEGER"})
 _add_missing_columns("participants", {"race_id": "INTEGER", "gender": "VARCHAR(16)"})
@@ -434,6 +509,373 @@ def prune_analytics(db: Session = Depends(get_db)):
     return {"removed": analytics.prune(db)}
 
 
+# --------------------------------------------------------------------------
+# Runners: their account, their record, their entries
+# --------------------------------------------------------------------------
+
+def _clean_email(value: str) -> str:
+    """Not full RFC validation, which rejects addresses that work. Enough to
+    catch a typo before it becomes an account nobody can recover."""
+    email = (value or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or " " in email:
+        raise HTTPException(422, "That does not look like an email address.")
+    return email
+
+
+@app.post("/api/auth/signup", response_model=schemas.MeOut, status_code=201)
+def sign_up(payload: schemas.SignUpIn, request: Request, response: Response,
+            db: Session = Depends(get_db)):
+    """Open a runner account.
+
+    The role is hard-coded, never taken from the body. A public form that
+    accepted a role field would be a public form for making super admins.
+    """
+    username = payload.username.strip().lower()
+    email = _clean_email(payload.email)
+
+    if db.query(models.User).filter(models.User.username == username).first():
+        raise HTTPException(409, f"The name '{username}' is taken.")
+    if db.query(models.User).filter(models.User.email == email).first():
+        raise HTTPException(409, "There is already an account with that email.")
+    if payload.password.strip().lower() == username:
+        raise HTTPException(422, "Your password cannot be your username.")
+
+    user = models.User(
+        username=username,
+        display_name=payload.display_name.strip(),
+        email=email,
+        phone=(payload.phone or "").strip() or None,
+        home_town=(payload.home_town or "").strip() or None,
+        password_hash=auth.hash_password(payload.password),
+        role="runner",
+        must_change_password=False,     # they just chose it
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    auth.start_session(db, user, response, request)
+    return _me(user)
+
+
+@app.get("/api/me/profile", response_model=schemas.UserOut)
+def my_profile(user: models.User = Depends(auth.require_user)):
+    return user
+
+
+@app.patch("/api/me/profile", response_model=schemas.UserOut)
+def update_my_profile(payload: schemas.ProfileIn,
+                      user: models.User = Depends(auth.require_user),
+                      db: Session = Depends(get_db)):
+    data = payload.model_dump(exclude_unset=True)
+    if "email" in data and data["email"]:
+        email = _clean_email(data["email"])
+        clash = (db.query(models.User)
+                 .filter(models.User.email == email, models.User.id != user.id)
+                 .first())
+        if clash:
+            raise HTTPException(409, "Another account already uses that email.")
+        data["email"] = email
+    for field, value in data.items():
+        setattr(user, field, (value.strip() or None) if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.get("/api/me/record")
+def my_record(user: models.User = Depends(auth.require_user),
+              db: Session = Depends(get_db)):
+    """Races, points and badges. Derived from reads on every call, like the
+    leaderboard -- so voiding a bad scan corrects a total with no recount."""
+    return achievements.profile(db, user)
+
+
+@app.get("/api/me/registrations", response_model=List[schemas.RegistrationOut])
+def my_registrations(user: models.User = Depends(auth.require_user),
+                     db: Session = Depends(get_db)):
+    rows = (db.query(models.Registration)
+            .filter(models.Registration.user_id == user.id)
+            .order_by(models.Registration.created_at.desc())
+            .all())
+    return [_registration_out(db, r) for r in rows]
+
+
+def _registration_out(db: Session, r: models.Registration) -> schemas.RegistrationOut:
+    bib = None
+    if r.status == "confirmed":
+        entry = (db.query(models.Participant)
+                 .filter(models.Participant.event_id == r.event_id,
+                         models.Participant.user_id == r.user_id)
+                 .first())
+        bib = entry.bib if entry else None
+    return schemas.RegistrationOut(
+        id=r.id,
+        event_code=r.event.code if r.event else "",
+        event_name=r.event.name if r.event else "",
+        race_id=r.race_id,
+        race=r.race.name if r.race else None,
+        status=r.status,
+        category=r.category,
+        gender=r.gender,
+        emergency_contact=r.emergency_contact,
+        note=r.note,
+        created_at=r.created_at,
+        runner=(r.user.display_name or r.user.username) if r.user else None,
+        username=r.user.username if r.user else None,
+        email=r.user.email if r.user else None,
+        phone=r.user.phone if r.user else None,
+        bib=bib,
+    )
+
+
+# --------------------------------------------------------------------------
+# Upcoming events, and entering them
+# --------------------------------------------------------------------------
+
+@app.get("/api/events/upcoming", response_model=List[schemas.EventPublicOut])
+def upcoming_events(request: Request, db: Session = Depends(get_db)):
+    """Published events, soonest first. Public.
+
+    Unpublished events are invisible here whatever their date, so an organiser
+    can set one up over several sittings without half of it appearing on the
+    site.
+    """
+    user = auth.optional_user(request, db)
+    events = (db.query(Event)
+              .filter(Event.is_published.is_(True))
+              .order_by(Event.starts_at.is_(None), Event.starts_at.asc())
+              .all())
+
+    out = []
+    for ev in events:
+        mine = None
+        if user is not None:
+            reg = (db.query(models.Registration)
+                   .filter(models.Registration.event_id == ev.id,
+                           models.Registration.user_id == user.id)
+                   .first())
+            mine = reg.status if reg else None
+        entrants = (db.query(models.Registration)
+                    .filter(models.Registration.event_id == ev.id,
+                            models.Registration.status.in_(("pending", "confirmed")))
+                    .count())
+        out.append(schemas.EventPublicOut(
+            code=ev.code, name=ev.name, starts_at=ev.starts_at,
+            location=ev.location, description=ev.description,
+            entry_note=ev.entry_note,
+            registration_open=bool(ev.registration_open),
+            races=[schemas.RaceOut.model_validate(r) for r in ev.races],
+            entrants=entrants, my_status=mine,
+        ))
+    return out
+
+
+@app.patch("/api/events/{code}/schedule", response_model=schemas.EventOut,
+           dependencies=ADMIN)
+def set_schedule(code: str, payload: schemas.EventScheduleIn,
+                 db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(ev, field, value)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@app.post("/api/events/{code}/register", response_model=schemas.RegistrationOut,
+          status_code=201)
+def register_for_event(code: str, payload: schemas.RegistrationIn,
+                       user: models.User = Depends(auth.require_user),
+                       db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    if not ev.is_published or not ev.registration_open:
+        raise HTTPException(409, "Entries are not open for this race.")
+
+    existing = (db.query(models.Registration)
+                .filter(models.Registration.event_id == ev.id,
+                        models.Registration.user_id == user.id)
+                .first())
+    if existing and existing.status in ("pending", "confirmed"):
+        raise HTTPException(409, "You have already entered this race.")
+
+    race_id = _resolve_race_id(ev, payload.race_id)
+
+    if existing:                 # withdrawn or rejected: let them come back
+        existing.status = "pending"
+        existing.race_id = race_id
+        existing.category = payload.category
+        existing.gender = payload.gender
+        existing.emergency_contact = payload.emergency_contact
+        existing.note = payload.note
+        existing.decided_at = None
+        db.commit()
+        db.refresh(existing)
+        return _registration_out(db, existing)
+
+    reg = models.Registration(
+        event_id=ev.id, user_id=user.id, race_id=race_id,
+        category=payload.category, gender=payload.gender,
+        emergency_contact=payload.emergency_contact, note=payload.note,
+    )
+    db.add(reg)
+    db.commit()
+    db.refresh(reg)
+    return _registration_out(db, reg)
+
+
+@app.post("/api/registrations/{reg_id}/withdraw",
+          response_model=schemas.RegistrationOut)
+def withdraw(reg_id: int, user: models.User = Depends(auth.require_user),
+             db: Session = Depends(get_db)):
+    reg = db.get(models.Registration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such entry.")
+    # A runner may withdraw their own; an organiser may withdraw anyone's.
+    if reg.user_id != user.id and not user.is_operator:
+        raise HTTPException(403, "That is not your entry.")
+    reg.status = "withdrawn"
+    reg.decided_at = utcnow()
+    # If a bib had been assigned, take it off the start list as well, or the
+    # race would run with somebody entered who has pulled out.
+    db.query(models.Participant).filter(
+        models.Participant.event_id == reg.event_id,
+        models.Participant.user_id == reg.user_id).delete(synchronize_session=False)
+    db.commit()
+    db.refresh(reg)
+    return _registration_out(db, reg)
+
+
+@app.get("/api/events/{code}/registrations",
+         response_model=List[schemas.RegistrationOut], dependencies=ADMIN)
+def list_registrations(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    rows = (db.query(models.Registration)
+            .filter(models.Registration.event_id == ev.id)
+            .order_by(models.Registration.created_at.asc())
+            .all())
+    return [_registration_out(db, r) for r in rows]
+
+
+@app.patch("/api/registrations/{reg_id}", response_model=schemas.RegistrationOut,
+           dependencies=ADMIN)
+def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
+                        db: Session = Depends(get_db)):
+    """Accept, reject or reopen an entry.
+
+    Confirming is the moment a request becomes a bib on the start list, so it
+    is also the moment a Participant appears -- linked to the account, which is
+    what lets the runner's own page find the result afterwards.
+    """
+    reg = db.get(models.Registration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such entry.")
+    ev = reg.event
+
+    if payload.status == "confirmed":
+        bib = (payload.bib or "").strip()
+        if not bib:
+            raise HTTPException(422, "Give them a bib number to confirm the entry.")
+        race_id = _resolve_race_id(ev, payload.race_id or reg.race_id)
+
+        clash = (db.query(models.Participant)
+                 .filter(models.Participant.event_id == ev.id,
+                         models.Participant.bib == bib)
+                 .first())
+        if clash and clash.user_id != reg.user_id:
+            raise HTTPException(409, f"Bib {bib} is already taken in this race.")
+
+        entry = (db.query(models.Participant)
+                 .filter(models.Participant.event_id == ev.id,
+                         models.Participant.user_id == reg.user_id)
+                 .first())
+        if entry is None:
+            entry = models.Participant(event_id=ev.id, user_id=reg.user_id)
+            db.add(entry)
+        entry.bib = bib
+        entry.name = reg.user.display_name or reg.user.username
+        entry.category = reg.category
+        entry.gender = reg.gender
+        entry.race_id = race_id
+        reg.race_id = race_id
+    else:
+        # Anything other than confirmed means they are not on the start list.
+        db.query(models.Participant).filter(
+            models.Participant.event_id == reg.event_id,
+            models.Participant.user_id == reg.user_id).delete(
+                synchronize_session=False)
+
+    reg.status = payload.status
+    reg.decided_at = utcnow()
+    db.commit()
+    db.refresh(reg)
+    return _registration_out(db, reg)
+
+
+# --------------------------------------------------------------------------
+# Contact form
+# --------------------------------------------------------------------------
+
+@app.post("/api/messages", status_code=201)
+def post_message(payload: schemas.MessageIn, request: Request,
+                 db: Session = Depends(get_db)):
+    """Anyone may write in, signed in or not.
+
+    Saved first, emailed second. If mail is not configured the message is still
+    kept and shown in Race admin, because losing what somebody wrote because
+    SMTP was wrong is worse than having no form.
+    """
+    user = auth.optional_user(request, db)
+    msg = models.Message(
+        name=payload.name.strip(),
+        email=_clean_email(payload.email),
+        subject=payload.subject.strip(),
+        body=payload.body.strip(),
+        user_id=user.id if user else None,
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+
+    sent, error = mail.send_contact(msg.name, msg.email, msg.subject, msg.body)
+    if sent:
+        msg.emailed = True
+        db.commit()
+    return {"ok": True, "emailed": sent, "id": msg.id,
+            "detail": None if sent else error}
+
+
+@app.get("/api/messages", response_model=List[schemas.MessageOut],
+         dependencies=ADMIN)
+def list_messages(db: Session = Depends(get_db)):
+    rows = (db.query(models.Message)
+            .order_by(models.Message.created_at.desc())
+            .limit(200).all())
+    return [schemas.MessageOut(
+        id=m.id, created_at=m.created_at, name=m.name, email=m.email,
+        subject=m.subject, body=m.body, emailed=m.emailed, handled=m.handled,
+        username=m.user.username if m.user else None) for m in rows]
+
+
+@app.patch("/api/messages/{msg_id}", response_model=schemas.MessageOut,
+           dependencies=ADMIN)
+def mark_message(msg_id: int, handled: bool = True, db: Session = Depends(get_db)):
+    msg = db.get(models.Message, msg_id)
+    if msg is None:
+        raise HTTPException(404, "No such message.")
+    msg.handled = handled
+    db.commit()
+    db.refresh(msg)
+    return schemas.MessageOut(
+        id=msg.id, created_at=msg.created_at, name=msg.name, email=msg.email,
+        subject=msg.subject, body=msg.body, emailed=msg.emailed,
+        handled=msg.handled, username=msg.user.username if msg.user else None)
+
+
+@app.get("/api/mail/status", dependencies=ADMIN)
+def mail_status():
+    return mail.status()
+
+
 @app.get("/api/admin/check")
 def admin_check(request: Request, db: Session = Depends(get_db)):
     """What the browser needs in order to decide which screens to offer.
@@ -447,6 +889,10 @@ def admin_check(request: Request, db: Session = Depends(get_db)):
         "protected": True,          # there is always an account system now
         "signed_in": user is not None,
         "role": user.role if user else None,
+        # A runner is signed in but runs nothing, so the home page must not
+        # offer them the organiser tools on the strength of a session alone.
+        "is_operator": bool(user and user.is_operator),
+        "display_name": (user.display_name or user.username) if user else None,
         "can_create_events": bool(user and user.is_super),
         "can_manage_users": bool(user and user.is_super),
         "must_change_password": bool(user and user.must_change_password),
@@ -1093,20 +1539,7 @@ def results(code: str, db: Session = Depends(get_db)):
     ranked against the 10K field, and each race can have had its own gun.
     """
     ev = _get_event(db, code)
-    reads = db.query(Read).filter(Read.event_id == ev.id).all()
-
-    rows = []
-    for race in ev.races:
-        rows.extend(compute_results(
-            ev, race.checkpoints, race.participants, reads, race=race))
-
-    # Anyone still unassigned -- possible only if a race was deleted out from
-    # under them -- is timed against the event's own checkpoints so they never
-    # silently vanish from the results.
-    loose = [p for p in ev.participants if p.race_id is None]
-    if loose:
-        rows.extend(compute_results(
-            ev, [c for c in ev.checkpoints if c.race_id is None], loose, reads))
+    rows = event_result_rows(db, ev)
 
     return {
         # Same here: hand-built dicts, so as_utc is applied at each timestamp.
@@ -1145,13 +1578,18 @@ def index():
 # page would render empty -- but an admin screen that loads at all, for anyone
 # who guesses the URL, is not something to leave standing.
 @app.get("/admin.html", include_in_schema=False)
-def admin_page(request: Request):
-    # Only "is anyone signed in?" -- the middleware has already validated the
-    # session, so this needs no query, and every API call behind the page
-    # checks the role properly.
-    if auth.signed_in_id(request) is None:
+def admin_page(request: Request, db: Session = Depends(get_db)):
+    # Not merely "is anyone signed in?" any more. Runners hold accounts too,
+    # and a runner reaching the organiser's screen -- even an empty one whose
+    # every request would be refused -- is not something to leave standing.
+    user = auth.optional_user(request, db)
+    if user is None or not user.is_operator:
         # 303 so the browser follows with GET, and `next` so signing in lands
         # back where they were headed rather than on the home page.
+        # A signed-in runner is not asked to sign in again -- they already are.
+        # They are sent to their own page, which is the one they wanted.
+        if user is not None:
+            return RedirectResponse("/me.html", status_code=303)
         return RedirectResponse("/login.html?next=%2Fadmin.html", status_code=303)
     return FileResponse(
         STATIC_DIR / "admin.html",

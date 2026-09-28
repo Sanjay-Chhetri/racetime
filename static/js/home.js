@@ -6,7 +6,7 @@
    "Race admin" above both. The organiser tools are behind a sign-in now -- they
    are a handful of people, once per event, and they know where they are going. */
 
-import { esc, ok } from '/js/ui.js';
+import { esc, ok, withBusy } from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -93,6 +93,164 @@ function renderRecent() {
   $('recent').hidden = false;
 }
 
+/* ---------- upcoming races ----------
+
+   The list is public, so a spectator or a prospective entrant sees what is
+   coming without an account. Entering needs one, and the button leads there
+   rather than letting somebody fill in a form that will be refused. */
+
+let me = null;          // null when signed out
+let upcoming = [];
+
+const fmtDate = iso => iso
+  ? new Date(iso).toLocaleDateString(undefined,
+      { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+  : 'Date to be announced';
+
+const ENTRY_LABEL = {
+  pending: 'Entry sent',
+  confirmed: 'You are in',
+  withdrawn: 'Withdrawn',
+  rejected: 'Not accepted',
+};
+
+async function loadUpcoming() {
+  try {
+    upcoming = await fetch('/api/events/upcoming').then(r => r.json());
+  } catch {
+    $('upcomingNote').textContent = 'Could not load the race list.';
+    return;
+  }
+  if (!Array.isArray(upcoming) || !upcoming.length) {
+    $('eventCards').innerHTML =
+      '<div class="empty"><div class="t">Nothing announced yet</div>'
+      + '<div class="h">Races appear here as soon as an organiser publishes '
+      + 'them.</div></div>';
+    return;
+  }
+  $('upcomingNote').textContent =
+    `${upcoming.length} race${upcoming.length === 1 ? '' : 's'} announced`;
+
+  $('eventCards').innerHTML = upcoming.map(e => {
+    const races = e.races.map(r =>
+      `<span class="tag">${esc(r.name)}${r.distance_km ? ' \u00b7 ' + r.distance_km + ' km' : ''}</span>`
+    ).join('');
+    const mine = e.my_status ? ENTRY_LABEL[e.my_status] : null;
+    const action = mine
+      ? `<span class="tag ${e.my_status === 'confirmed' ? 'go' : 'wait'}">${esc(mine)}</span>`
+      : e.registration_open
+        ? `<button class="primary" data-enter="${esc(e.code)}">Enter this race</button>`
+        : '<span class="tag">Entries not open</span>';
+    return `<article class="eventcard">
+      <div class="evwhen">${esc(fmtDate(e.starts_at))}</div>
+      <h3>${esc(e.name)}</h3>
+      ${e.location ? `<p class="evwhere">${esc(e.location)}</p>` : ''}
+      ${e.description ? `<p class="note">${esc(e.description)}</p>` : ''}
+      <div class="evraces">${races}</div>
+      ${e.entry_note ? `<p class="note tight">${esc(e.entry_note)}</p>` : ''}
+      <div class="evacts">
+        ${action}
+        <a href="/results.html#${encodeURIComponent(e.code)}">Results</a>
+      </div>
+      <p class="note tight">${e.entrants} entered so far</p>
+    </article>`;
+  }).join('');
+
+  $('eventCards').querySelectorAll('[data-enter]').forEach(b => {
+    b.onclick = () => openEntry(b.dataset.enter);
+  });
+}
+
+function openEntry(code) {
+  // Entering needs an account. Sending them to sign up, with a way back, beats
+  // letting them fill in a form that is going to be refused.
+  if (!me) {
+    location.href = '/signup.html';
+    return;
+  }
+  const ev = upcoming.find(e => e.code === code);
+  if (!ev) return;
+  $('entryTitle').textContent = `Enter ${ev.name}`;
+  $('entryWhen').textContent =
+    [fmtDate(ev.starts_at), ev.location].filter(Boolean).join(' \u00b7 ');
+  $('enRace').innerHTML = ev.races.map(r =>
+    `<option value="${r.id}">${esc(r.name)}${r.distance_km ? ' \u2014 ' + r.distance_km + ' km' : ''}</option>`
+  ).join('') || '<option value="">The organiser will decide</option>';
+  $('enErr').hidden = true;
+  $('entryDialog').dataset.code = code;
+  $('entryDialog').showModal();
+}
+
+$('enSend').onclick = async e => {
+  e.preventDefault();
+  const dlg = $('entryDialog');
+  const code = dlg.dataset.code;
+  $('enErr').hidden = true;
+  const body = {
+    race_id: Number($('enRace').value) || null,
+    category: $('enCategory').value.trim() || null,
+    gender: $('enGender').value.trim() || null,
+    emergency_contact: $('enEmergency').value.trim() || null,
+    note: $('enNote').value.trim() || null,
+  };
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(code)}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      $('enErr').textContent = typeof err.detail === 'string'
+        ? err.detail : 'That entry could not be sent.';
+      $('enErr').hidden = false;
+      return;
+    }
+    dlg.close();
+    ok('Entry sent. The organiser will confirm it and give you a bib.');
+    loadUpcoming();
+  } catch {
+    $('enErr').textContent = 'Could not reach the server.';
+    $('enErr').hidden = false;
+  }
+};
+
+/* ---------- contact ---------- */
+
+$('contactForm').onsubmit = e => {
+  e.preventDefault();
+  return withBusy($('cSend'), async () => {
+    $('cErr').hidden = true;
+    const body = {
+      name: $('cName').value.trim(),
+      email: $('cEmail').value.trim(),
+      subject: $('cSubject').value.trim(),
+      body: $('cBody').value.trim(),
+    };
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        $('cErr').textContent = typeof out.detail === 'string'
+          ? out.detail : 'That message could not be sent.';
+        $('cErr').hidden = false;
+        return;
+      }
+      // The message is kept either way; only the email copy may not have gone,
+      // which is the organiser's problem to fix, not the sender's to worry at.
+      ok('Thank you \u2014 your message has reached the organiser.');
+      ['cSubject', 'cBody'].forEach(id => { $(id).value = ''; });
+    } catch {
+      $('cErr').textContent = 'Could not reach the server. Try again shortly.';
+      $('cErr').hidden = false;
+    }
+  });
+};
+
 /* ---------- organiser ----------
 
    The page asks the server who this is. It does not decide anything itself:
@@ -106,7 +264,20 @@ async function initAuth() {
   } catch {
     return;                      // offline: leave the runner's page alone
   }
-  if (!who || !who.signed_in) return;
+  me = (who && who.signed_in) ? who : null;
+  if (!me) return;
+
+  // Signed in, whatever the role: the ways in are replaced by the way to your
+  // own page.
+  $('signIn').hidden = true;
+  $('signUp').hidden = true;
+  $('mine').hidden = false;
+  $('mine').textContent = who.display_name || 'My running';
+  if (!$('cName').value) $('cName').value = who.display_name || '';
+
+  // A runner holds an account but runs nothing, so the organiser section stays
+  // shut for them. Every endpoint behind it is refused by the server anyway.
+  if (!who.is_operator) return;
 
   $('orgWho').textContent = who.role === 'super_admin' ? 'a super admin' : 'an admin';
   $('adminCardText').textContent = who.can_create_events
@@ -139,4 +310,6 @@ loadRaces().then(() => {
   syncButtons();
   renderRecent();
 });
-initAuth();
+// Identity first: it decides whether "Enter this race" opens a form or leads
+// to sign-up, so the race list waits on it.
+initAuth().then(loadUpcoming);

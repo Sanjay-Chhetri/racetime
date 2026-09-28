@@ -204,8 +204,9 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
    where you were and a link can point at a section. */
 
 // Tabs that need a race open, and tabs that belong to the operator.
-const RACE_TABS = ['runners', 'races', 'checkpoints', 'artwork', 'reads'];
-const OPS_TABS = ['members', 'analytics', 'account'];
+const RACE_TABS = ['runners', 'entries', 'races', 'checkpoints',
+                   'artwork', 'reads'];
+const OPS_TABS = ['members', 'analytics', 'messages', 'account'];
 const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
 
@@ -231,6 +232,7 @@ function showTab(name, { push = true } = {}) {
   // and go away without one, rather than sitting there doing nothing.
   const onRace = Boolean(ev);
   RACE_TABS.forEach(t => { $('tab-' + t).hidden = !onRace; });
+  $('schedulePanel').hidden = !(onRace && RACE_TABS.includes(name));
   $('event').hidden = !(onRace && RACE_TABS.includes(name));
   $('chooser').hidden = onRace;
 
@@ -242,6 +244,8 @@ function showTab(name, { push = true } = {}) {
   if (name === 'reads' && !readsLoaded) loadReads();
   if (name === 'members') loadMembers();
   if (name === 'analytics') loadAnalytics();
+  if (name === 'messages') loadMessages();
+  if (name === 'entries') loadEntries();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
 }
@@ -300,6 +304,7 @@ async function load(code, wantTab) {
   $('badgeMode').value = ev.badge_mode || 'placing';
   $('badgeText').value = ev.badge_text || '';
   $('certFit').value = ev.cert_fit || 'cover';
+  fillSchedule();
   syncBadgeFields();
   renderRaces();
   renderCheckpoints();
@@ -965,6 +970,225 @@ $('muAdd').onclick = e => withBusy(e.currentTarget, async () => {
     if (e.key === 'Enter') { e.preventDefault(); $('muAdd').click(); }
   });
 });
+
+/* ---------- when and where ---------- */
+
+/** An ISO instant to what <input type="datetime-local"> wants, in the
+ *  organiser's own timezone -- the value is naive local time, so converting in
+ *  UTC would show a race starting five and a half hours early. */
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+         `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fillSchedule() {
+  $('schWhen').value = toLocalInput(ev.starts_at);
+  $('schWhere').value = ev.location || '';
+  $('schAbout').value = ev.description || '';
+  $('schEntry').value = ev.entry_note || '';
+  $('schPublished').checked = Boolean(ev.is_published);
+  $('schOpen').checked = Boolean(ev.registration_open);
+}
+
+$('schSave').onclick = e => withBusy(e.currentTarget, async () => {
+  $('schErr').hidden = true;
+  if ($('schOpen').checked && !$('schPublished').checked) {
+    $('schErr').textContent =
+      'Entries cannot open on a race nobody can see. Tick "Show on the home page" too.';
+    $('schErr').hidden = false;
+    return;
+  }
+  try {
+    // The input gives naive local time; new Date reads it as local and
+    // toISOString converts, so the stored instant is right wherever it is read.
+    const when = $('schWhen').value;
+    ev = await api(`/events/${ev.code}/schedule`, json('PATCH', {
+      starts_at: when ? new Date(when).toISOString() : null,
+      location: $('schWhere').value.trim() || null,
+      description: $('schAbout').value.trim() || null,
+      entry_note: $('schEntry').value.trim() || null,
+      is_published: $('schPublished').checked,
+      registration_open: $('schOpen').checked,
+    }));
+    fillSchedule();
+    ok($('schPublished').checked
+      ? 'Saved. The race is on the home page.'
+      : 'Saved. The race is not shown publicly yet.');
+  } catch (err) {
+    $('schErr').textContent = err.message;
+    $('schErr').hidden = false;
+  }
+});
+
+/* ---------- entries ---------- */
+
+const ENTRY_TONE = {
+  pending: ['wait', 'waiting'],
+  confirmed: ['go', 'confirmed'],
+  withdrawn: ['', 'withdrawn'],
+  rejected: ['stop', 'not accepted'],
+};
+
+function entryError(msg) {
+  const el = $('entryErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+async function loadEntries() {
+  if (!ev) return;
+  const tb = $('entryList');
+  tb.innerHTML = skeletonRows(7, 4);
+  let rows;
+  try {
+    rows = await api(`/events/${ev.code}/registrations`);
+  } catch (e) {
+    tb.innerHTML = emptyState(7, 'Could not load the entries', e.message);
+    return;
+  }
+
+  const live = rows.filter(r => r.status === 'pending' || r.status === 'confirmed');
+  $('nEntries').textContent = live.length || '';
+
+  if (!rows.length) {
+    tb.innerHTML = emptyState(7, 'Nobody has entered through the website yet',
+      'Open entries under "When and where", then share the home page.');
+    return;
+  }
+
+  tb.innerHTML = rows.map(r => {
+    const [tone, label] = ENTRY_TONE[r.status] || ['', r.status];
+    const bibField = `<input class="num bibin" data-bibfor="${r.id}"
+        value="${esc(r.bib || '')}" placeholder="bib" inputmode="numeric">`;
+    return `<tr>
+      <td><strong>${esc(r.runner || r.username || '')}</strong>
+        <div class="note tight">${esc(r.username || '')}</div></td>
+      <td>${esc(r.race || '—')}</td>
+      <td>${esc([r.category, r.gender].filter(Boolean).join(' · ') || '—')}</td>
+      <td class="note tight">${esc(r.email || '')}<br>${esc(r.phone || '')}
+        ${r.emergency_contact
+          ? `<br><span class="tag">ICE: ${esc(r.emergency_contact)}</span>` : ''}</td>
+      <td><span class="tag ${tone}">${esc(label)}</span></td>
+      <td class="num">${r.status === 'confirmed' ? esc(r.bib || '') : bibField}</td>
+      <td class="num">
+        ${r.status !== 'confirmed'
+          ? `<button class="quiet" data-confirm="${r.id}">Confirm</button>` : ''}
+        ${r.status === 'pending'
+          ? `<button class="quiet danger" data-reject="${r.id}">Reject</button>` : ''}
+        ${r.status === 'confirmed'
+          ? `<button class="quiet danger" data-remove="${r.id}">Remove</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const decide = async (id, body) => {
+    entryError('');
+    try {
+      await api(`/registrations/${id}`, json('PATCH', body));
+      loadEntries();
+      loadRoster();       // a confirmed entry is a new name on the start list
+    } catch (e) { entryError(e.message); }
+  };
+
+  tb.querySelectorAll('[data-confirm]').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.confirm;
+      const field = tb.querySelector(`[data-bibfor="${id}"]`);
+      const bib = field ? field.value.trim() : '';
+      if (!bib) {
+        entryError('Type a bib number next to them first — confirming is what '
+          + 'puts them on the start list.');
+        if (field) field.focus();
+        return;
+      }
+      decide(id, { status: 'confirmed', bib });
+    };
+  });
+  tb.querySelectorAll('[data-reject]').forEach(b => {
+    b.onclick = () => decide(b.dataset.reject, { status: 'rejected' });
+  });
+  tb.querySelectorAll('[data-remove]').forEach(b => {
+    b.onclick = async () => {
+      if (!await confirmDialog({
+        title: 'Take them off the start list?',
+        body: 'Their bib is released and the entry goes back to waiting. '
+            + 'Anything they have already been scanned for is kept.',
+        confirm: 'Remove',
+      })) return;
+      decide(b.dataset.remove, { status: 'pending' });
+    };
+  });
+}
+
+/* ---------- messages ---------- */
+
+async function loadMessages() {
+  const host = $('messageList');
+  host.innerHTML = '<p class="note">Loading…</p>';
+
+  try {
+    const mailState = await api('/mail/status');
+    const el = $('mailState');
+    if (mailState.configured) {
+      el.hidden = false;
+      el.textContent = `A copy of each message is emailed to ${mailState.to}.`;
+    } else {
+      el.hidden = false;
+      el.textContent = 'Email is not set up on this server, so messages are '
+        + 'kept here only. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD to have '
+        + 'them forwarded as well. Nothing is lost either way.';
+    }
+  } catch { /* the list matters more than the banner */ }
+
+  let rows;
+  try {
+    rows = await api('/messages');
+  } catch (e) {
+    host.innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+
+  const open = rows.filter(m => !m.handled).length;
+  $('nMessages').textContent = open || '';
+
+  if (!rows.length) {
+    host.innerHTML = '<div class="empty"><div class="t">No messages</div>'
+      + '<div class="h">The form on the home page arrives here.</div></div>';
+    return;
+  }
+
+  host.innerHTML = rows.map(m => `
+    <article class="runcard ${m.handled ? 'done' : ''}">
+      <div class="runhead">
+        <div>
+          <h3>${esc(m.subject)}</h3>
+          <p class="note">${esc(m.name)} &lt;${esc(m.email)}&gt;
+            ${m.username ? `<span class="tag">${esc(m.username)}</span>` : ''}
+            · ${esc(new Date(m.created_at).toLocaleString())}</p>
+        </div>
+        <span class="tag ${m.emailed ? 'go' : ''}">${m.emailed ? 'emailed' : 'stored'}</span>
+      </div>
+      <p style="white-space:pre-wrap;margin:.8rem 0 0">${esc(m.body)}</p>
+      <div class="runacts">
+        <a href="mailto:${esc(m.email)}?subject=${encodeURIComponent('Re: ' + m.subject)}">Reply</a>
+        <button class="quiet" data-handled="${m.id}" data-to="${m.handled ? 'false' : 'true'}">
+          ${m.handled ? 'Mark unread' : 'Mark done'}</button>
+      </div>
+    </article>`).join('');
+
+  host.querySelectorAll('[data-handled]').forEach(b => {
+    b.onclick = async () => {
+      try {
+        await api(`/messages/${b.dataset.handled}?handled=${b.dataset.to}`,
+                  { method: 'PATCH' });
+        loadMessages();
+      } catch (e) { fail(e.message); }
+    };
+  });
+}
 
 /* ---------- visitors ---------- */
 

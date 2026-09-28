@@ -20,9 +20,10 @@
   </a>
   <nav class="sitenav">
     <span id="wallpaper"></span>
-    <!-- Organiser tools live behind this. A runner has no use for them and
-         should not have to step over them to reach their own time. -->
-    <a class="linkbtn" id="signIn" href="/login.html">Organiser sign-in</a>
+    <!-- A runner's way in. Replaced by their own name once signed in. -->
+    <a class="linkbtn" id="mine" href="/me.html" hidden>My running</a>
+    <a class="linkbtn" id="signIn" href="/login.html">Sign in</a>
+    <a class="linkbtn" id="signUp" href="/signup.html">Create account</a>
   </nav>
 </header>
 
@@ -69,6 +70,37 @@
   </div>
 </section>
 
+<section class="upcoming" id="upcoming">
+  <div class="sechead">
+    <h2>Upcoming races</h2>
+    <span class="note" id="upcomingNote"></span>
+  </div>
+  <div class="eventcards" id="eventCards"></div>
+</section>
+
+<section class="contact" id="contact">
+  <div class="contactcopy">
+    <h2>Get in touch</h2>
+    <p>Questions about entering, a correction to a result, or you would like
+    RaceTime to time your race &mdash; write here and it reaches the organiser
+    directly.</p>
+  </div>
+  <form class="contactform" id="contactForm">
+    <div class="row">
+      <div><label for="cName">Your name</label>
+        <input id="cName" autocapitalize="words" required></div>
+      <div><label for="cEmail">Email</label>
+        <input id="cEmail" type="email" autocapitalize="none" required></div>
+    </div>
+    <label for="cSubject">Subject</label>
+    <input id="cSubject" required placeholder="Entry for the Pedong run">
+    <label for="cBody">Message</label>
+    <textarea id="cBody" rows="5" required></textarea>
+    <p class="fieldErr" id="cErr" hidden></p>
+    <button id="cSend" class="primary" type="submit" style="margin-top:.8rem">Send</button>
+  </form>
+</section>
+
 <!-- Revealed only once an organiser signs in. -->
 <section class="organiser" id="organiser" hidden>
   <div class="orgtop">
@@ -100,6 +132,32 @@
   Kalimpong and Pedong hills.</p>
   <p class="footby">Built by <strong>Sanjay Chhetri</strong>.</p>
 </footer>
+
+<dialog id="entryDialog" class="entrydialog">
+  <form method="dialog">
+    <h3 id="entryTitle">Enter this race</h3>
+    <p class="note" id="entryWhen"></p>
+    <label for="enRace">Which race</label>
+    <select id="enRace"></select>
+    <div class="row">
+      <div><label for="enCategory">Category <span class="opt">optional</span></label>
+        <input id="enCategory" autocapitalize="words" placeholder="Open"></div>
+      <div><label for="enGender">Gender <span class="opt">optional</span></label>
+        <input id="enGender" autocapitalize="words" placeholder="Men"></div>
+    </div>
+    <label for="enEmergency">Emergency contact</label>
+    <input id="enEmergency" placeholder="Name and phone number">
+    <p class="note tight">A name and number to ring if you do not come back.
+    Hill races ask for this, and it is the only reason it is kept.</p>
+    <label for="enNote">Anything the organiser should know <span class="opt">optional</span></label>
+    <textarea id="enNote" rows="2"></textarea>
+    <p class="fieldErr" id="enErr" hidden></p>
+    <div class="modal-acts" style="margin-top:1rem">
+      <button value="cancel" class="cancel">Cancel</button>
+      <button id="enSend" value="send" class="primary">Send entry</button>
+    </div>
+  </form>
+</dialog>
 
 <script type="module" src="/js/home.js"></script>
 </body>

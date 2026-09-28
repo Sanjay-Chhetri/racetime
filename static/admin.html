@@ -74,8 +74,14 @@
             aria-controls="panel-reads">Reads <span class="tab-n" id="nReads"></span></button>
     <button class="tab" role="tab" data-tab="members" id="tab-members" hidden
             aria-controls="panel-members">Members <span class="tab-n" id="nMembers"></span></button>
+    <button class="tab" role="tab" data-tab="entries" id="tab-entries"
+            aria-controls="panel-entries">Entries
+      <span class="tab-n" id="nEntries"></span></button>
     <button class="tab" role="tab" data-tab="analytics" id="tab-analytics"
             aria-controls="panel-analytics">Visitors</button>
+    <button class="tab" role="tab" data-tab="messages" id="tab-messages"
+            aria-controls="panel-messages">Messages
+      <span class="tab-n" id="nMessages"></span></button>
     <button class="tab" role="tab" data-tab="account" id="tab-account"
             aria-controls="panel-account">Your account</button>
   </nav>
@@ -165,6 +171,12 @@
   </section>
 
   <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-messages" data-tab="messages" aria-labelledby="tab-messages">
+    <p class="fieldErr plain" id="mailState" hidden></p>
+    <div id="messageList"></div>
+  </section>
+
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
            id="panel-account" data-tab="account" aria-labelledby="tab-account">
     <h3 style="margin:0 0 .2rem">Change your password</h3>
     <p class="note">Changing it signs out every other browser you are signed in
@@ -185,6 +197,32 @@
 </div>
 
 <div id="event" hidden>
+  <section class="panel noprint" id="schedulePanel">
+    <h3 style="margin:0 0 .2rem">When and where</h3>
+    <p class="note">This is what appears in <strong>Upcoming races</strong> on
+    the home page. Nothing is shown to the public until you publish it, so a
+    race can be set up over several sittings.</p>
+    <div class="row">
+      <div><label for="schWhen">Date and time</label>
+        <input id="schWhen" type="datetime-local"></div>
+      <div><label for="schWhere">Place</label>
+        <input id="schWhere" placeholder="Pedong, Kalimpong"></div>
+    </div>
+    <label for="schAbout" style="margin-top:.6rem">About the race</label>
+    <textarea id="schAbout" rows="3"
+      placeholder="A hill run on the old Pedong road. Water at 4 km."></textarea>
+    <label for="schEntry" style="margin-top:.6rem">Note for entrants</label>
+    <input id="schEntry" placeholder="Entry free. Report by 6:30 am.">
+    <div class="row" style="margin-top:.8rem">
+      <label class="check"><input type="checkbox" id="schPublished">
+        Show on the home page</label>
+      <label class="check"><input type="checkbox" id="schOpen">
+        Accept entries</label>
+      <button id="schSave" class="primary narrow">Save</button>
+    </div>
+    <p class="fieldErr" id="schErr" hidden></p>
+  </section>
+
   <section class="panel noprint eventbar">
     <div class="eventbar-id">
       <h2 id="evName"></h2>
@@ -391,6 +429,18 @@
   <!-- Super admins only. The tab is hidden for an admin and every endpoint
        behind it is refused by the server regardless. -->
 
+
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-entries" data-tab="entries" aria-labelledby="tab-entries">
+    <p class="note">People who have entered through the website. An entry is a
+    request until you confirm it and give them a bib &mdash; confirming is what
+    puts them on the start list.</p>
+    <table class="roster"><thead><tr>
+      <th>Runner</th><th>Race</th><th>Category</th><th>Contact</th>
+      <th>Status</th><th class="num">Bib</th><th></th>
+    </tr></thead><tbody id="entryList"></tbody></table>
+    <p class="fieldErr" id="entryErr" hidden></p>
+  </section>
 
   <section id="bibSheet" hidden>
     <div class="bibsheet" id="bibs"></div>

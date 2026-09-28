@@ -28,6 +28,9 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Trying it on a phone](#trying-it-on-a-phone)
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
+- [Runner accounts](#runner-accounts)
+- [Upcoming races and entries](#upcoming-races-and-entries)
+- [Getting in touch](#getting-in-touch)
 - [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
@@ -58,7 +61,8 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 | **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
 | **Finisher share cards** | A 1080 × 1350 image built for Instagram and WhatsApp, on your artwork. Runners search by name and can add their own photo. |
 | **Live leaderboard** | Says whether the race is still on, how many are home and how far each runner is behind the winner. Filter by race, status, category or gender. |
-| **Accounts and roles** | Named sign-ins with two roles. Super admins create races and manage members; admins run them. Results and scanning stay public. |
+| **Runner accounts** | Runners keep their races, times, certificates, points and badges in one place, and enter races themselves. |
+| **Accounts and roles** | Named sign-ins with three roles. Super admins create races and manage members; admins run them. Results and scanning stay public. |
 | **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
 
 ---
@@ -187,6 +191,58 @@ Two naming rules follow from how the app works:
 
 ---
 
+## Runner accounts
+
+Anyone can open an account at `/signup.html`. It is optional — results and
+certificates stay open to everyone — but with one, a runner gets **My running**:
+every race they have run, their times and placings, the certificates they have
+earned, points, badges, and the entries they are waiting on.
+
+None of it is stored. Points and badges are worked out from the scans on every
+request, the same way the leaderboard is, so voiding a bad read corrects
+somebody's total without a recount.
+
+| | Points |
+|---|---|
+| Finishing | 10 |
+| Each kilometre | 1 |
+| First overall | 25 · second 15 · third 10 |
+| Winning your category | 10 |
+| First of your gender | 8 |
+
+Placings only score where the placing means something — top three, and never in
+the bottom half of the field. It is the same rule the finisher card uses, so a
+badge and a total never disagree.
+
+## Upcoming races and entries
+
+Publish a race under **Race admin → When and where** and it appears in
+*Upcoming races* on the home page. Tick **Accept entries** and runners can enter
+it themselves.
+
+An entry is a **request**, not a bib. It arrives in **Race admin → Entries**,
+where you confirm it and give them a number — and confirming is the moment they
+join the start list under their own name. Withdrawing or rejecting takes them
+back off it, so a race never runs with somebody entered who has pulled out.
+
+A fresh install creates a published **practice event** three weeks out with
+entries open, so you can walk the whole path — enter, confirm, print a bib,
+scan it, see the result, collect the certificate — before a real race depends
+on it. Delete it when you are done; it does not come back. `RACETIME_NO_DEMO=1`
+skips it.
+
+## Getting in touch
+
+The form at the bottom of the home page reaches the organiser. Messages are
+**saved to the database first** and emailed second — if `SMTP_*` is not
+configured they are still kept, and **Race admin → Messages** says so plainly.
+A contact form that loses what people wrote because mail was misconfigured is
+worse than no contact form.
+
+To have them forwarded, set `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD`
+(and `CONTACT_EMAIL` to change the destination from
+`sanjay.chhetri4u@gmail.com`).
+
 ## Signing in
 
 Organisers sign in at `/login.html` with a username and password. There are two
@@ -195,8 +251,13 @@ roles:
 | | Super admin | Admin |
 |---|---|---|
 | Run a race — runners, checkpoints, artwork, reads, bibs | yes | yes |
+| Confirm entries, read messages and visitor numbers | yes | yes |
 | **Create a race** | yes | no |
 | **Manage members** | yes | no |
+
+There is a third role below both: **runner**. A runner holds an account and can
+enter races and see their own record, but runs nothing — `/admin.html` is not
+served to them at all.
 
 Passwords are stored as PBKDF2-HMAC-SHA256 at 600,000 iterations. The session is
 an `HttpOnly`, `SameSite=Lax` cookie backed by a row in the database, so signing
@@ -422,6 +483,11 @@ you will actually touch:
 | | `POST` | `/api/auth/logout` | Sign out |
 | ⭐ | `GET` | `/api/users` | Accounts (super admin only) |
 | 🔒 | `GET` | `/api/analytics` | Visitor numbers |
+| | `POST` | `/api/auth/signup` | Open a runner account |
+| | `GET` | `/api/events/upcoming` | Published races, soonest first |
+| 🔒 | `GET` | `/api/me/record` | Your races, points and badges |
+| 🔒 | `POST` | `/api/events/{code}/register` | Enter a race |
+| | `POST` | `/api/messages` | Contact form |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | ⭐ | `POST` | `/api/events` | Create an event |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |

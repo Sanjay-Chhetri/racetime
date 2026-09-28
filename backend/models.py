@@ -70,6 +70,18 @@ class Event(Base):
     # depends on the printer and the paper, so it stays an organiser's choice.
     bib_style = Column(String(8), nullable=True)
 
+    # --- the event as an entrant sees it, before race day ---
+    # start_time above is the gun. This is the date in the poster, set when the
+    # race is announced, which is what an upcoming-events list needs.
+    starts_at = Column(DateTime(timezone=True), nullable=True)
+    location = Column(String(160), nullable=True)
+    description = Column(String(2000), nullable=True)
+    # Nothing is visible to the public until an organiser says so, so a race
+    # can be set up over several sittings without half of it being on the site.
+    is_published = Column(Boolean, nullable=False, default=False)
+    registration_open = Column(Boolean, nullable=False, default=False)
+    entry_note = Column(String(400), nullable=True)
+
     races = relationship(
         "Race", back_populates="event",
         cascade="all, delete-orphan", order_by="Race.sequence",
@@ -148,6 +160,11 @@ class Participant(Base):
     # the exact string, so the start list has to be consistent.
     gender = Column(String(16), nullable=True)
     dnf = Column(Boolean, nullable=False, default=False)
+    # Set when the entry came from a registered account, which is how a runner's
+    # own page finds their races. Null for anyone entered from a CSV or typed in
+    # on the day, and those stay perfectly valid entries.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"),
+                     nullable=True, index=True)
 
     event = relationship("Event", back_populates="participants")
     race = relationship("Race", back_populates="participants")
@@ -200,8 +217,10 @@ class Read(Base):
 # --------------------------------------------------------------------------
 
 # Ordered weakest to strongest. Comparing by index is how a permission check
-# stays a single expression rather than a chain of role names.
-ROLES = ("admin", "super_admin")
+# stays a single expression rather than a chain of role names -- and why adding
+# "runner" below the others required no change to a single existing endpoint:
+# everything already demanded "admin or above".
+ROLES = ("runner", "admin", "super_admin")
 
 
 class User(Base):
@@ -214,7 +233,12 @@ class User(Base):
     username = Column(String(40), unique=True, nullable=False, index=True)
     display_name = Column(String(80), nullable=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(16), nullable=False, default="admin")
+    role = Column(String(16), nullable=False, default="runner")
+    # Runners sign themselves up and need a way back in; operator accounts were
+    # created by a super admin and may have none.
+    email = Column(String(190), unique=True, nullable=True, index=True)
+    phone = Column(String(32), nullable=True)
+    home_town = Column(String(80), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     # Set when an account is created or reset by a super admin, so the app can
     # insist on a new password before it is used for anything.
@@ -228,6 +252,11 @@ class User(Base):
     @property
     def is_super(self) -> bool:
         return self.role == "super_admin"
+
+    @property
+    def is_operator(self) -> bool:
+        """Admin or above. A runner holds an account but runs nothing."""
+        return ROLES.index(self.role) >= ROLES.index("admin")
 
 
 class Session(Base):
@@ -285,3 +314,69 @@ class PageView(Base):
     __table_args__ = (
         Index("ix_pageviews_at_path", "at", "path"),
     )
+
+
+# --------------------------------------------------------------------------
+# Signing up for a race, and what comes of it
+# --------------------------------------------------------------------------
+
+class Registration(Base):
+    """Someone has asked to run. Not the same thing as being on the start list.
+
+    A registration is a request; a Participant is a bib. Keeping them apart is
+    what lets an organiser take entries for weeks, then decide the field, assign
+    numbers, and print. Confirming a registration is what creates the entry.
+    """
+    __tablename__ = "registrations"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    race_id = Column(Integer, ForeignKey("races.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+
+    # pending -> confirmed (a bib exists) | withdrawn | rejected
+    status = Column(String(12), nullable=False, default="pending")
+    category = Column(String(60), nullable=True)
+    gender = Column(String(16), nullable=True)
+    # Not a medical record. A name and number to ring if someone does not come
+    # back, which is the least a hill race should hold.
+    emergency_contact = Column(String(160), nullable=True)
+    note = Column(String(400), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+    event = relationship("Event")
+    race = relationship("Race")
+    user = relationship("User")
+
+    __table_args__ = (
+        # One entry per person per event. Changing your mind edits the row.
+        UniqueConstraint("event_id", "user_id", name="uq_registration_person"),
+    )
+
+
+class Message(Base):
+    """Something somebody sent through the contact form.
+
+    Kept in the database first and emailed second. Mail needs credentials that
+    may not be set, and a contact form that silently drops what people write
+    because SMTP was misconfigured is worse than no contact form.
+    """
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False,
+                        index=True)
+    name = Column(String(120), nullable=False)
+    email = Column(String(190), nullable=False)
+    subject = Column(String(160), nullable=False)
+    body = Column(String(4000), nullable=False)
+    # Set when a signed-in runner sent it, so a reply has somewhere to go.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Whether the copy to the organiser's inbox actually left.
+    emailed = Column(Boolean, nullable=False, default=False)
+    handled = Column(Boolean, nullable=False, default=False)
+
+    user = relationship("User")
