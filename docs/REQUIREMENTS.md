@@ -554,6 +554,42 @@ powers of the race director.
 - **FR-12.7** Panels over a wallpaper stay at 88% opacity with a small blur, so
   they remain readable in sunlight at a finish line.
 
+### FR-13 — Visitor analytics
+
+- **FR-13.1** Visits are counted **on the server**, in the middleware that
+  already runs. No tracking script is added to any page — which also means the
+  finisher certificate is measured without being edited, and that the count is
+  unaffected by ad blockers, a large share of the audience on a results page.
+- **FR-13.2** **No cookie is set and no identifier outlives a day.** To count
+  people rather than requests, each visit is reduced to
+  `sha256(daily_salt + ip + user_agent)`, truncated to 32 characters. The same
+  person on the same day is one visitor; tomorrow they are a new one. Nothing
+  stored can be turned back into an address. `ANALYTICS_SALT` sets the salt.
+- **FR-13.3** The table holds **no raw IP address and no user-agent string** —
+  only the hash, the path, a bare referring hostname, and `phone`/`tablet`/
+  `desktop`.
+- **FR-13.4** Only pages are counted, not stylesheets, scripts or icons, which
+  would be thirty rows a visit saying nothing. Requests are counted only when
+  the response succeeded: a `404`, or the redirect to sign-in, is not a read.
+- **FR-13.5** Known crawlers are excluded by user agent.
+- **FR-13.6** A page's race code lives in the URL **fragment**, which browsers
+  never send. The race is therefore attributed from the `results` API call the
+  page makes next, attached to that visitor's most recent view rather than
+  added as a row, so one visit stays one visit.
+- **FR-13.7** Recording is best-effort and wrapped: a failed count must never
+  turn into a `500` on a results page mid-race.
+- **FR-13.8** Rows older than **90 days** are deleted; a super admin can prune
+  on demand.
+- **FR-13.9** The screen shows visits, visitors, visits per day, a daily
+  series with quiet days included rather than skipped, time of day **converted
+  to the reader's timezone**, and the top races, pages, referrers and devices.
+- **FR-13.10** Readable by **any signed-in operator** — knowing how many people
+  are watching is part of running a race and names nobody. Pruning is super
+  admin only. Anonymous callers get `401`.
+- **FR-13.11** **Session duration is not measured**, and the screen says so.
+  It would need a script on the page reporting back, which is the thing being
+  avoided.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -816,6 +852,7 @@ Required environment:
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./racetime.db` | Postgres URL in production |
 | `RACETIME_SEED_USERS` | *(unset)* | First-run accounts, `name:password:role,…`. Only consulted when the users table is empty |
+| `ANALYTICS_SALT` | *(derived)* | Salt for the daily visitor hash. Set it to a random value in production |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
 HTTPS is mandatory in any deployment: phone cameras will not start without it.

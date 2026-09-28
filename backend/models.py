@@ -251,3 +251,37 @@ class Session(Base):
     user_agent = Column(String(200), nullable=True)
 
     user = relationship("User", back_populates="sessions")
+
+
+class PageView(Base):
+    """One visit to one page.
+
+    Deliberately thin. There is no cookie, no identifier that outlives a day,
+    and no raw IP address anywhere in the table -- see `visitor` below. What it
+    can answer is how many people looked, when, at what, and which race they
+    cared about. What it cannot answer is who they were, which is the point.
+    """
+    __tablename__ = "pageviews"
+
+    id = Column(Integer, primary_key=True)
+    at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    # "/results.html", "/certificate.html", "/" -- never a query string, which
+    # is where personal data ends up by accident.
+    path = Column(String(120), nullable=False, index=True)
+    # SHA-256 of (a salt that changes every day + IP + user agent), truncated.
+    # Same person, same day, same device = same value, so visitors can be
+    # counted. Tomorrow it is a different value, so nobody can be followed
+    # across days, and nothing here can be turned back into an address.
+    visitor = Column(String(32), nullable=False, index=True)
+    # Which race the visit was about, when the request says so. Page URLs carry
+    # the code in the fragment, which browsers never send, so this is filled
+    # from the API call the page makes next.
+    event_code = Column(String(24), nullable=True, index=True)
+    # Bare hostname only: "wa.me", "google.com". Never the full referring URL.
+    referrer = Column(String(120), nullable=True)
+    # phone | tablet | desktop, from a coarse user-agent check.
+    device = Column(String(12), nullable=True)
+
+    __table_args__ = (
+        Index("ix_pageviews_at_path", "at", "path"),
+    )

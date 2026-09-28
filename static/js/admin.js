@@ -205,7 +205,7 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
 
 // Tabs that need a race open, and tabs that belong to the operator.
 const RACE_TABS = ['runners', 'races', 'checkpoints', 'artwork', 'reads'];
-const OPS_TABS = ['members', 'account'];
+const OPS_TABS = ['members', 'analytics', 'account'];
 const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
 
@@ -241,6 +241,7 @@ function showTab(name, { push = true } = {}) {
   // every open made the page slow to appear for something rarely looked at.
   if (name === 'reads' && !readsLoaded) loadReads();
   if (name === 'members') loadMembers();
+  if (name === 'analytics') loadAnalytics();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
 }
@@ -965,6 +966,80 @@ $('muAdd').onclick = e => withBusy(e.currentTarget, async () => {
   });
 });
 
+/* ---------- visitors ---------- */
+
+const pct = (n, max) => (max ? Math.max(2, Math.round((n / max) * 100)) : 0);
+
+function rows(tbody, items, label, value, empty) {
+  const tb = $(tbody);
+  if (!items.length) {
+    tb.innerHTML = `<tr><td class="note">${esc(empty)}</td></tr>`;
+    return;
+  }
+  const max = items[0][value];
+  tb.innerHTML = items.map(i => `
+    <tr>
+      <td>${esc(String(i[label]))}</td>
+      <td class="num">${i[value]}</td>
+      <td class="barcell"><span style="width:${pct(i[value], max)}%"></span></td>
+    </tr>`).join('');
+}
+
+async function loadAnalytics() {
+  const days = $('anDays').value;
+  $('anTotals').innerHTML = '';
+  let a;
+  try {
+    a = await api(`/analytics?days=${days}`);
+  } catch (e) {
+    $('anTotals').innerHTML = `<div class="score"><span class="k">${esc(e.message)}</span></div>`;
+    return;
+  }
+
+  const perDay = a.days ? (a.views / a.days) : 0;
+  $('anTotals').innerHTML = [
+    { v: a.views, k: a.views === 1 ? 'visit' : 'visits' },
+    { v: a.visitors, k: a.visitors === 1 ? 'person' : 'people' },
+    { v: perDay.toFixed(perDay < 10 ? 1 : 0), k: 'visits a day' },
+  ].map(c => `<div class="score"><span class="v">${esc(String(c.v))}</span>` +
+             `<span class="k">${esc(c.k)}</span></div>`).join('');
+
+  // Days
+  const maxDay = Math.max(1, ...a.daily.map(d => d.views));
+  $('anDaily').innerHTML = a.daily.map(d => {
+    const when = new Date(d.date + 'T00:00:00');
+    return `<div class="bar" title="${esc(d.date)}: ${d.views} visits, ${d.visitors} people">
+        <span class="fill" style="height:${pct(d.views, maxDay)}%"></span>
+        <span class="lab">${when.getDate()}</span>
+      </div>`;
+  }).join('');
+
+  // Hours. The server counts in UTC; shift into whatever this browser is in,
+  // because "busiest at 03:00" is meaningless when the race was at 09:00.
+  const shift = -new Date().getTimezoneOffset() / 60;
+  const local = new Array(24).fill(0);
+  a.hours.forEach((n, h) => {
+    local[((h + Math.round(shift)) % 24 + 24) % 24] += n;
+  });
+  const maxHour = Math.max(1, ...local);
+  $('anHours').innerHTML = local.map((n, h) => `
+      <div class="bar" title="${String(h).padStart(2, '0')}:00 — ${n} visits">
+        <span class="fill" style="height:${pct(n, maxHour)}%"></span>
+        <span class="lab">${h % 6 === 0 ? String(h).padStart(2, '0') : ''}</span>
+      </div>`).join('');
+
+  rows('anRaces', a.races, 'code', 'views',
+       'No race pages opened yet in this period.');
+  rows('anPages', a.pages, 'path', 'views', 'Nothing yet.');
+  rows('anRefs', a.referrers, 'host', 'views',
+       'Everyone arrived directly — typed in, or from a WhatsApp link, which sends no referrer.');
+  rows('anDevices', a.devices, 'device', 'views', 'Nothing yet.');
+  $('anRetention').textContent = a.retention_days;
+}
+
+$('anDays').onchange = loadAnalytics;
+$('anReload').onclick = e => withBusy(e.currentTarget, loadAnalytics);
+
 /* ---------- audit ----------
 
    Two hundred rows rendered at once was 11,000px of table -- most of the old
@@ -1071,6 +1146,9 @@ mountPicker($('wallpaper'));
     showTab('account', { push: false });
     $('chooser').hidden = true;
     $('pwCurrent').focus();
+    // Fill the picker anyway. Returning here left it on "Loading…" for anyone
+    // who then moved to another screen without reloading the page.
+    loadEventPicker('');
     return;
   }
 
@@ -1083,7 +1161,13 @@ mountPicker($('wallpaper'));
 // Back and forward should move between tabs, not silently do nothing.
 window.addEventListener('hashchange', () => {
   const now = parseHash();
-  if (!now.code) return;
+  // "#!members", "#!analytics", "#!account" carry no race. Bailing out when
+  // there was no code made those three unreachable by URL, and broke back and
+  // forward between them.
+  if (!now.code) {
+    if (now.tab && now.tab !== tab) showTab(now.tab, { push: false });
+    return;
+  }
   if (!ev || ev.code !== now.code) { load(now.code, now.tab); return; }
   if (now.tab && now.tab !== tab) showTab(now.tab, { push: false });
 });

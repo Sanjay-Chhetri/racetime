@@ -1601,3 +1601,45 @@ body.signin {
 @media (max-width: 560px) {
   .account { width: 100%; margin-left: 0; flex-wrap: wrap; }
 }
+
+/* ---------- visitor charts ----------
+   Bars drawn in CSS. A charting library for two histograms would be 60KB on a
+   page an organiser opens on hill data. */
+
+.bars {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 7rem; padding: var(--s3) 0 0;
+  border-bottom: 1px solid var(--rule);
+}
+.bars .bar {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  align-items: center; height: 100%;
+  position: relative;
+}
+.bars .fill {
+  width: 100%; border-radius: 2px 2px 0 0;
+  background: var(--paint); opacity: .85;
+  min-height: 2px;
+}
+.bars .bar:hover .fill { opacity: 1; }
+.bars .lab {
+  position: absolute; bottom: -1.25rem;
+  font-size: .68rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.bars + h3, .bars + p { margin-top: 2rem; }
+.bars.hours .fill { background: var(--go); }
+
+.anlists {
+  display: grid; gap: var(--s5) var(--s5); margin-top: 2.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+.anlists h3 { margin: 0 0 var(--s2); font-size: 1rem; }
+.anlists td { padding: var(--s2) var(--s2); }
+.barcell { width: 40%; }
+.barcell span {
+  display: block; height: 6px; border-radius: 3px;
+  background: var(--rule); min-width: 2px;
+}
+.anlists tr:first-child .barcell span { background: var(--paint); opacity: .8; }

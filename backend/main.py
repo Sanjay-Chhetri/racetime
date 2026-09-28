@@ -23,7 +23,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import auth, models, schemas
+from . import analytics, auth, models, schemas
 from .db import Base, SessionLocal, engine, get_db
 from .models import Checkpoint, Event, Participant, Race, Read, utcnow
 from .timing import compute_results
@@ -223,7 +223,20 @@ async def _attach_user(request: Request, call_next):
             request.state.user_id = auth.resolve_session(db, raw)
         finally:
             db.close()
-    return await call_next(request)
+
+    response = await call_next(request)
+
+    # Count the visit, but only once the page actually loaded -- a 404 or a
+    # redirect to the sign-in screen is not somebody reading the results.
+    if request.method == "GET" and response.status_code < 400:
+        wanted, code = analytics.what_to_record(request.url.path)
+        if wanted:
+            db = SessionLocal()
+            try:
+                analytics.record(db, request, request.url.path, code)
+            finally:
+                db.close()
+    return response
 
 
 ADMIN = auth.ADMIN          # admin or super admin
@@ -403,6 +416,22 @@ def delete_user(user_id: int,
     db.delete(user)
     db.commit()
     return Response(status_code=204)
+
+
+@app.get("/api/analytics", dependencies=ADMIN)
+def site_analytics(days: int = 30, db: Session = Depends(get_db)):
+    """Traffic for the whole site.
+
+    Open to any signed-in operator, not just a super admin: knowing how many
+    people are watching is part of running a race, and it names nobody.
+    """
+    days = max(1, min(90, days))
+    return analytics.summary(db, days)
+
+
+@app.post("/api/analytics/prune", dependencies=SUPER)
+def prune_analytics(db: Session = Depends(get_db)):
+    return {"removed": analytics.prune(db)}
 
 
 @app.get("/api/admin/check")

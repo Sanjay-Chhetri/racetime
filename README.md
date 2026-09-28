@@ -31,6 +31,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
+- [Who is looking](#who-is-looking)
 - [Race admin](#race-admin)
 - [Bibs and artwork](#bibs-and-artwork)
 - [Finisher share cards](#finisher-share-cards)
@@ -259,6 +260,26 @@ back where you were and you can link someone straight to a section.
 Reads load only when you open them, fifty rows at a time, with a bib filter for
 chasing down a single runner's sightings.
 
+## Who is looking
+
+**Race admin → Visitors** shows how many people opened the site, when, which
+races they looked at, what they came from and on what kind of device.
+
+It is counted on the server, so there is **no tracking script on any page** and
+no cookie. To count people rather than requests, each visit is reduced to a hash
+of the address and browser with a salt that changes at midnight — the same
+person is one visitor for a day, and a different one tomorrow, so nobody can be
+followed across days and nothing stored can be turned back into a person. The
+table holds no IP address and no user-agent string. Rows older than 90 days are
+deleted.
+
+Because it is server-side it also counts people running an ad blocker, and it
+covers the finisher certificate without a script being added to that page.
+
+It **cannot** tell you how long anyone stayed. That needs a script reporting
+back from the page, which is exactly what this avoids. Set `ANALYTICS_SALT` to
+a random value in production.
+
 ## Bibs and artwork
 
 Upload race artwork in Race admin. **PNG, JPEG or WebP, 5 MB maximum.** SVG is
@@ -400,6 +421,7 @@ you will actually touch:
 | | `POST` | `/api/auth/login` | Sign in; sets the session cookie |
 | | `POST` | `/api/auth/logout` | Sign out |
 | ⭐ | `GET` | `/api/users` | Accounts (super admin only) |
+| 🔒 | `GET` | `/api/analytics` | Visitor numbers |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | ⭐ | `POST` | `/api/events` | Create an event |
 | 🔒 | `POST` | `/api/events/{code}/start` | Fire the gun; optional `?at=` |

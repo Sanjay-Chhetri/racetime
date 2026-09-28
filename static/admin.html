@@ -74,6 +74,8 @@
             aria-controls="panel-reads">Reads <span class="tab-n" id="nReads"></span></button>
     <button class="tab" role="tab" data-tab="members" id="tab-members" hidden
             aria-controls="panel-members">Members <span class="tab-n" id="nMembers"></span></button>
+    <button class="tab" role="tab" data-tab="analytics" id="tab-analytics"
+            aria-controls="panel-analytics">Visitors</button>
     <button class="tab" role="tab" data-tab="account" id="tab-account"
             aria-controls="panel-account">Your account</button>
   </nav>
@@ -110,6 +112,58 @@
     you would not put a password in.</p>
     <p class="fieldErr" id="muErr" hidden></p>
   </section>
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-analytics" data-tab="analytics" aria-labelledby="tab-analytics">
+    <div class="row">
+      <div style="flex:0 1 11rem"><label for="anDays">Period</label>
+        <select id="anDays">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+        </select></div>
+      <button id="anReload" class="narrow">Reload</button>
+    </div>
+
+    <div class="scoreboard" id="anTotals" style="margin-top:1rem"></div>
+
+    <h3 style="margin:1.6rem 0 .4rem">Visits per day</h3>
+    <div class="bars" id="anDaily"></div>
+
+    <h3 style="margin:1.6rem 0 .4rem">Busiest time of day</h3>
+    <p class="note">Your local time. Useful for knowing when people actually
+    check the results &mdash; usually the hour after the last finisher.</p>
+    <div class="bars hours" id="anHours"></div>
+
+    <div class="anlists">
+      <div>
+        <h3>Races people looked at</h3>
+        <table class="roster"><tbody id="anRaces"></tbody></table>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <table class="roster"><tbody id="anPages"></tbody></table>
+      </div>
+      <div>
+        <h3>Where they came from</h3>
+        <table class="roster"><tbody id="anRefs"></tbody></table>
+      </div>
+      <div>
+        <h3>Devices</h3>
+        <table class="roster"><tbody id="anDevices"></tbody></table>
+      </div>
+    </div>
+
+    <p class="fieldErr plain" id="anNote" style="margin-top:1.2rem">
+      No cookies, and no tracking script on any page. Each visit is reduced to a
+      hash of the address and browser with a salt that changes at midnight, so
+      visitors can be counted for a day and nobody can be followed across days
+      or identified. Counted on the server, so it also works for people with an
+      ad blocker. Rows older than <span id="anRetention">90</span> days are
+      deleted. It cannot tell you how long anyone stayed &mdash; that needs a
+      script on the page, which is what this avoids.
+    </p>
+  </section>
+
   <section class="panel noprint tabpanel" role="tabpanel" hidden
            id="panel-account" data-tab="account" aria-labelledby="tab-account">
     <h3 style="margin:0 0 .2rem">Change your password</h3>
