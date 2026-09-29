@@ -236,7 +236,7 @@ skips it.
 ## Race photographs
 
 A race can carry a **photograph** — runners on the road, the start line, the
-view. Upload it in **Race admin → When and where**, with an optional credit.
+view. Upload it in **Race admin → Artwork**, with the bib artwork and the certificate background — all three images in one place — with an optional credit.
 
 It leads the card in *Upcoming races* and runs across the top of the results
 page: the two screens somebody reaches without knowing anything about the race.

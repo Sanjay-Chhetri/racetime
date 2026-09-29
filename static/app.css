@@ -1694,7 +1694,14 @@ body.signin {
 }
 .evacts button { width: auto; flex: 0 0 auto; }
 .note.tight { font-size: .8rem; margin: 0; }
-.opt { color: var(--muted); font-weight: 400; text-transform: none; }
+/* Read as part of the label without becoming part of it: "Who took it
+   optional" was one phrase to the eye, and a confusing one. */
+.opt {
+  color: var(--muted); font-weight: 400; text-transform: none;
+  font-style: italic;
+}
+.opt::before { content: '('; }
+.opt::after { content: ')'; }
 
 /* ---------- contact ---------- */
 

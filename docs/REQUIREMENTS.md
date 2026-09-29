@@ -684,8 +684,11 @@ powers of the race director.
 
 ### FR-16a — Race photographs
 
-- **FR-16a.1** An event may carry a **photograph**, uploaded in Race admin
-  beside the date and place. It is a **third image on purpose**: the bib
+- **FR-16a.1** An event may carry a **photograph**, uploaded on the **Artwork**
+  screen beside the other two images. It was first placed with the date and
+  place, which is where it logically belongs and not where anybody looked:
+  three image uploads, two of them together and one elsewhere, is a search.
+  *When and where* points at it instead. It is a **third image on purpose**: the bib
   artwork is a printed banner and the certificate background is a portrait
   card, and neither is a picture of runners on the road — which is what makes a
   listing worth opening.

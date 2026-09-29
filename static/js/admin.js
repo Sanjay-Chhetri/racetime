@@ -997,6 +997,33 @@ function fillSchedule() {
   $('schOpen').checked = Boolean(ev.registration_open);
 }
 
+function photoError(msg, plain = false) {
+  const el = $('photoErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+  el.classList.toggle('plain', plain);
+}
+
+$('savePhoto').onclick = e => withBusy(e.currentTarget, async () => {
+  photoError('');
+  try {
+    if ($('schPhoto').files[0]) {
+      const fd = new FormData();
+      fd.append('file', await fitImageForUpload($('schPhoto').files[0],
+                                                m => photoError(m, true)));
+      ev = await api(`/events/${ev.code}/photo`, { method: 'POST', body: fd });
+      $('schPhoto').value = '';
+    }
+    // The credit rides on the schedule endpoint, which is where the field
+    // lives; sending it separately keeps one source of truth for the event.
+    ev = await api(`/events/${ev.code}/schedule`, json('PATCH', {
+      photo_credit: $('schCredit').value.trim() || null,
+    }));
+    fillSchedule();
+    ok('Race photo saved.');
+  } catch (err) { photoError(err.message); }
+});
+
 $('schPhotoClear').onclick = async () => {
   if (!await confirmDialog({
     title: 'Remove the race photo?',
@@ -1006,8 +1033,9 @@ $('schPhotoClear').onclick = async () => {
   try {
     ev = await api(`/events/${ev.code}/photo`, { method: 'DELETE' });
     fillSchedule();
+    photoError('');
     ok('Photo removed.');
-  } catch (err) { fail(err.message); }
+  } catch (err) { photoError(err.message); }
 };
 
 $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
@@ -1020,19 +1048,6 @@ $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
     return;
   }
   try {
-    // The photo goes first: if it fails there is no point saving a credit for
-    // a picture that is not there.
-    if ($('schPhoto').files[0]) {
-      const fd = new FormData();
-      fd.append('file', await fitImageForUpload($('schPhoto').files[0], msg => {
-        $('schErr').textContent = msg;
-        $('schErr').hidden = false;
-        $('schErr').classList.add('plain');
-      }));
-      ev = await api(`/events/${ev.code}/photo`, { method: 'POST', body: fd });
-      $('schPhoto').value = '';
-    }
-
     // The input gives naive local time; new Date reads it as local and
     // toISOString converts, so the stored instant is right wherever it is read.
     const when = $('schWhen').value;
@@ -1041,7 +1056,6 @@ $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
       location: $('schWhere').value.trim() || null,
       description: $('schAbout').value.trim() || null,
       entry_note: $('schEntry').value.trim() || null,
-      photo_credit: $('schCredit').value.trim() || null,
       is_published: $('schPublished').checked,
       registration_open: $('schOpen').checked,
     }));
