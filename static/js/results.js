@@ -85,6 +85,19 @@ async function poll() {
    and the ticking clock beside it says even less. */
 
 function renderHead() {
+  // The race photo across the top. This is the page people share, so it is
+  // worth looking like the race rather than like a spreadsheet.
+  const banner = $('raceBanner');
+  if (data.event.photo_url) {
+    banner.innerHTML =
+      `<img src="${esc(data.event.photo_url)}" alt="" loading="lazy">` +
+      (data.event.photo_credit
+        ? `<span class="credit">${esc(data.event.photo_credit)}</span>` : '');
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
+
   const all = data.results;
   const n = st => all.filter(r => r.status === st).length;
   const running = n('on_course');

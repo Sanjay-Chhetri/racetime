@@ -30,6 +30,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [One event, several distances](#one-event-several-distances)
 - [Runner accounts](#runner-accounts)
 - [Upcoming races and entries](#upcoming-races-and-entries)
+- [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
 - [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
@@ -61,6 +62,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 | **Branded bibs** | Upload artwork, print chest bibs with QR codes, two per A4. |
 | **Finisher share cards** | A 1080 × 1350 image built for Instagram and WhatsApp, on your artwork. Runners search by name and can add their own photo. |
 | **Live leaderboard** | Says whether the race is still on, how many are home and how far each runner is behind the winner. Filter by race, status, category or gender. |
+| **Race photographs** | A picture of the race on its listing and across the top of its results. |
 | **Runner accounts** | Runners keep their races, times, certificates, points and badges in one place, and enter races themselves. |
 | **Accounts and roles** | Named sign-ins with three roles. Super admins create races and manage members; admins run them. Results and scanning stay public. |
 | **RFID ready** | QR, manual entry and RFID all post the same payload to the same endpoint. |
@@ -231,16 +233,29 @@ scan it, see the result, collect the certificate — before a real race depends
 on it. Delete it when you are done; it does not come back. `RACETIME_NO_DEMO=1`
 skips it.
 
+## Race photographs
+
+A race can carry a **photograph** — runners on the road, the start line, the
+view. Upload it in **Race admin → When and where**, with an optional credit.
+
+It leads the card in *Upcoming races* and runs across the top of the results
+page: the two screens somebody reaches without knowing anything about the race.
+It is a third image on purpose — the bib artwork is a printed banner and the
+certificate background is a portrait card, and neither is a picture of the race.
+
+Both places crop rather than stretch, and the block is capped, so whatever shape
+you upload cannot take over the page.
+
 ## Getting in touch
 
 The form at the bottom of the home page reaches the organiser. Messages are
-**saved to the database first** and emailed second — if `SMTP_*` is not
-configured they are still kept, and **Race admin → Messages** says so plainly.
-A contact form that loses what people wrote because mail was misconfigured is
-worse than no contact form.
+**saved to the database and read in Race admin → Messages** — deliberately, so
+they stay in one place instead of becoming more email. A contact form that
+loses what people wrote because mail was misconfigured is worse than no contact
+form, which is why the database is the record and email is only ever a copy.
 
-To have them forwarded, set `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD`
-(and `CONTACT_EMAIL` to change the destination from
+If you do want copies forwarded, set `SMTP_HOST`, `SMTP_USER` and
+`SMTP_PASSWORD` (and `CONTACT_EMAIL` to change the destination from
 `sanjay.chhetri4u@gmail.com`).
 
 ## Signing in
@@ -646,8 +661,8 @@ Also handled:
 
 ## Not built yet
 
-**Payments** for entries, **race photography**, **SMS notifications**, and
-**year-grouping** of events. None of them affect the data model, so all are
+**SMS notifications** and **year-grouping** of events. **Payments are out of
+scope** by decision, not by omission. None of them affect the data model, so all are
 additive.
 
 Two gaps worth naming rather than leaving to be discovered:

@@ -141,7 +141,11 @@ async function loadUpcoming() {
       : e.registration_open
         ? `<button class="primary" data-enter="${esc(e.code)}">Enter this race</button>`
         : '<span class="tag">Entries not open</span>';
-    return `<article class="eventcard">
+    return `<article class="eventcard${e.photo_url ? ' haspic' : ''}">
+      ${e.photo_url ? `<div class="evpic">
+          <img src="${esc(e.photo_url)}" alt="" loading="lazy">
+          ${e.photo_credit ? `<span class="credit">${esc(e.photo_credit)}</span>` : ''}
+        </div>` : ''}
       <div class="evwhen">${esc(fmtDate(e.starts_at))}</div>
       <h3>${esc(e.name)}</h3>
       ${e.location ? `<p class="evwhere">${esc(e.location)}</p>` : ''}

@@ -985,6 +985,10 @@ function toLocalInput(iso) {
 }
 
 function fillSchedule() {
+  $('schCredit').value = ev.photo_credit || '';
+  $('schPhotoPreview').hidden = !ev.photo_url;
+  if (ev.photo_url) $('schPhotoImg').src = ev.photo_url;
+  $('schPhotoClear').hidden = !ev.photo_url;
   $('schWhen').value = toLocalInput(ev.starts_at);
   $('schWhere').value = ev.location || '';
   $('schAbout').value = ev.description || '';
@@ -993,8 +997,22 @@ function fillSchedule() {
   $('schOpen').checked = Boolean(ev.registration_open);
 }
 
+$('schPhotoClear').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Remove the race photo?',
+    body: 'The listing falls back to a plain card until another is uploaded.',
+    confirm: 'Remove',
+  })) return;
+  try {
+    ev = await api(`/events/${ev.code}/photo`, { method: 'DELETE' });
+    fillSchedule();
+    ok('Photo removed.');
+  } catch (err) { fail(err.message); }
+};
+
 $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
   $('schErr').hidden = true;
+  $('schErr').classList.remove('plain');
   if ($('schOpen').checked && !$('schPublished').checked) {
     $('schErr').textContent =
       'Entries cannot open on a race nobody can see. Tick "Show on the home page" too.';
@@ -1002,6 +1020,19 @@ $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
     return;
   }
   try {
+    // The photo goes first: if it fails there is no point saving a credit for
+    // a picture that is not there.
+    if ($('schPhoto').files[0]) {
+      const fd = new FormData();
+      fd.append('file', await fitImageForUpload($('schPhoto').files[0], msg => {
+        $('schErr').textContent = msg;
+        $('schErr').hidden = false;
+        $('schErr').classList.add('plain');
+      }));
+      ev = await api(`/events/${ev.code}/photo`, { method: 'POST', body: fd });
+      $('schPhoto').value = '';
+    }
+
     // The input gives naive local time; new Date reads it as local and
     // toISOString converts, so the stored instant is right wherever it is read.
     const when = $('schWhen').value;
@@ -1010,6 +1041,7 @@ $('schSave').onclick = e => withBusy(e.currentTarget, async () => {
       location: $('schWhere').value.trim() || null,
       description: $('schAbout').value.trim() || null,
       entry_note: $('schEntry').value.trim() || null,
+      photo_credit: $('schCredit').value.trim() || null,
       is_published: $('schPublished').checked,
       registration_open: $('schOpen').checked,
     }));
@@ -1132,14 +1164,16 @@ async function loadMessages() {
   try {
     const mailState = await api('/mail/status');
     const el = $('mailState');
+    // Keeping messages in the app rather than forwarding them is the chosen
+    // arrangement here, not a gap. The banner should not read like a warning.
     if (mailState.configured) {
       el.hidden = false;
-      el.textContent = `A copy of each message is emailed to ${mailState.to}.`;
+      el.textContent = `Messages arrive here, and a copy is emailed to ${mailState.to}.`;
     } else {
       el.hidden = false;
-      el.textContent = 'Email is not set up on this server, so messages are '
-        + 'kept here only. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD to have '
-        + 'them forwarded as well. Nothing is lost either way.';
+      el.textContent = 'Messages arrive here. Email forwarding is off, which '
+        + 'keeps them in one place instead of in an inbox — set SMTP_HOST, '
+        + 'SMTP_USER and SMTP_PASSWORD if you ever want copies sent on.';
     }
   } catch { /* the list matters more than the banner */ }
 

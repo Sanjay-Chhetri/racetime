@@ -682,13 +682,35 @@ powers of the race director.
 - **FR-16.9** An emergency contact is collected. It is a name and a number to
   ring, not a medical record, and that is the only reason it is kept.
 
+### FR-16a — Race photographs
+
+- **FR-16a.1** An event may carry a **photograph**, uploaded in Race admin
+  beside the date and place. It is a **third image on purpose**: the bib
+  artwork is a printed banner and the certificate background is a portrait
+  card, and neither is a picture of runners on the road — which is what makes a
+  listing worth opening.
+- **FR-16a.2** It appears on the **upcoming-races card** and across the top of
+  the **results page**, the two screens people reach cold.
+- **FR-16a.3** An optional credit line is shown over the image.
+- **FR-16a.4** Stored in the database like the other two images, magic-byte
+  sniffed, and resized in the browser before upload when it exceeds the
+  platform's request limit.
+- **FR-16a.5** Both places **crop rather than stretch** (`object-fit: cover`)
+  and the block is capped, so a tall or very wide photograph cannot take over
+  the page.
+- **FR-16a.6** Removing it returns both screens to their plain form.
+
 ### FR-17 — Contact form
 
 - **FR-17.1** Anyone may write in, signed in or not.
 - **FR-17.2** The message is **written to the database first and emailed
   second**. Mail needs credentials that may not be set; a form that silently
   drops what somebody wrote because SMTP was misconfigured is worse than no
-  form. The admin screen states plainly whether mail is configured.
+  form.
+- **FR-17.2a** On this deployment **forwarding is deliberately off**: messages
+  are read in Race admin rather than in an inbox, which keeps them in one
+  place. The admin banner states this as the arrangement it is, not as a fault
+  to be corrected — SMTP remains available for anyone who wants copies sent on.
 - **FR-17.3** Email goes to `CONTACT_EMAIL`, with the sender in `Reply-To` and
   never in `From` — the address is unverified, and forging `From` is how mail
   ends up in a spam folder.
@@ -771,6 +793,9 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `POST` | `/api/events/{code}/certificate-artwork` | Upload the certificate background |
 | 🔒 | `DELETE` | `/api/events/{code}/certificate-artwork` | Remove it; the bib artwork is used again |
 | | `GET` | `/api/events/{code}/certificate-artwork` | Serve the stored image |
+| 🔒 | `POST` | `/api/events/{code}/photo` | Upload the race photograph |
+| 🔒 | `DELETE` | `/api/events/{code}/photo` | Remove it |
+| | `GET` | `/api/events/{code}/photo` | Serve the stored photograph |
 
 ### Races
 | | Method | Path | Purpose |

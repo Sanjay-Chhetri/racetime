@@ -124,6 +124,8 @@ class EventOut(BaseModel):
     entry_note: Optional[str] = None
     is_published: bool = False
     registration_open: bool = False
+    photo_url: Optional[str] = None
+    photo_credit: Optional[str] = None
     races: List[RaceOut] = []
     checkpoints: List[CheckpointOut] = []
 
@@ -278,6 +280,7 @@ class EventScheduleIn(BaseModel):
     location: Optional[str] = Field(None, max_length=160)
     description: Optional[str] = Field(None, max_length=2000)
     entry_note: Optional[str] = Field(None, max_length=400)
+    photo_credit: Optional[str] = Field(None, max_length=120)
     is_published: Optional[bool] = None
     registration_open: Optional[bool] = None
 
@@ -291,6 +294,8 @@ class EventPublicOut(BaseModel):
     description: Optional[str] = None
     entry_note: Optional[str] = None
     registration_open: bool = False
+    photo_url: Optional[str] = None
+    photo_credit: Optional[str] = None
     races: List[RaceOut] = []
     entrants: int = 0
     # Filled in for a signed-in runner: their own registration, if any.

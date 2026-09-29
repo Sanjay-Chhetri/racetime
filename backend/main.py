@@ -31,6 +31,12 @@ from .timing import compute_results, event_result_rows
 Base.metadata.create_all(bind=engine)
 
 
+# SQLite and Postgres spell a binary column differently. Defined here because
+# the photo migration below needs it, and migrations must run before anything
+# that reads the schema -- which is the rule an outage taught.
+_BLOB_LATE = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+
+
 def _add_missing_columns(table: str, wanted: dict):
     """Add columns to a table that predates them.
 
@@ -155,6 +161,12 @@ _add_missing_columns("events", {
     "entry_note": "VARCHAR(400)",
 })
 _add_missing_columns("participants", {"user_id": "INTEGER"})
+_add_missing_columns("events", {
+    "photo_url": "VARCHAR(255)",
+    "photo_blob": _BLOB_LATE,
+    "photo_type": "VARCHAR(32)",
+    "photo_credit": "VARCHAR(120)",
+})
 _add_missing_columns("users", {
     "email": "VARCHAR(190)",
     "phone": "VARCHAR(32)",
@@ -691,6 +703,7 @@ def upcoming_events(request: Request, db: Session = Depends(get_db)):
             code=ev.code, name=ev.name, starts_at=ev.starts_at,
             location=ev.location, description=ev.description,
             entry_note=ev.entry_note,
+            photo_url=ev.photo_url, photo_credit=ev.photo_credit,
             registration_open=bool(ev.registration_open),
             races=[schemas.RaceOut.model_validate(r) for r in ev.races],
             entrants=entrants, my_status=mine,
@@ -1140,6 +1153,57 @@ async def upload_cert_artwork(code: str, file: UploadFile = File(...),
     return ev
 
 
+@app.post("/api/events/{code}/photo", response_model=schemas.EventOut,
+          dependencies=ADMIN)
+async def upload_photo(code: str, file: UploadFile = File(...),
+                       db: Session = Depends(get_db)):
+    """A photograph of the race, for the listing and the results page.
+
+    The third image an event can carry, and the only one that is a photograph.
+    The bib artwork is a printed banner and the certificate background is a
+    portrait card; neither is a picture of runners on the road, which is what
+    makes a race worth clicking on.
+    """
+    ev = _get_event(db, code)
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, "That file is empty")
+    if len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"The photo must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+    ev.photo_type = _sniff_image(blob)
+    ev.photo_blob = blob
+    ev.photo_url = f"/api/events/{ev.code}/photo?v={secrets.token_hex(4)}"
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@app.get("/api/events/{code}/photo")
+def get_photo(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    if not ev.photo_blob:
+        raise HTTPException(404, "This race has no photo")
+    return Response(
+        content=ev.photo_blob,
+        media_type=ev.photo_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.delete("/api/events/{code}/photo", response_model=schemas.EventOut,
+            dependencies=ADMIN)
+def clear_photo(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    ev.photo_url = None
+    ev.photo_blob = None
+    ev.photo_type = None
+    ev.photo_credit = None
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
 @app.get("/api/events/{code}/certificate-artwork")
 def get_cert_artwork(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
@@ -1572,7 +1636,9 @@ def results(code: str, db: Session = Depends(get_db)):
     return {
         # Same here: hand-built dicts, so as_utc is applied at each timestamp.
         "event": {"code": ev.code, "name": ev.name,
-                  "start_time": schemas.as_utc(ev.start_time)},
+                  "start_time": schemas.as_utc(ev.start_time),
+                  "location": ev.location,
+                  "photo_url": ev.photo_url, "photo_credit": ev.photo_credit},
         "races": [
             {"id": r.id, "name": r.name, "distance_km": r.distance_km,
              "start_time": schemas.as_utc(r.start_time), "sequence": r.sequence}

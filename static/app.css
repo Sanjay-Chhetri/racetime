@@ -1667,7 +1667,11 @@ body.signin {
 
 .eventcards {
   display: grid; gap: var(--s4);
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  /* A capped column rather than 1fr: with a single race announced, auto-fit
+     stretched the card across the whole page and its 16:9 photo became a
+     billboard. Cards wrap into columns as more races appear. */
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 26rem));
+  justify-content: start;
 }
 .eventcard {
   padding: var(--s5);
@@ -1794,3 +1798,58 @@ label.check input { width: auto; flex: none; margin: 0; }
 
 /* The bib box in the entries table stays narrow -- it holds two digits. */
 .bibin { width: 4.5rem; padding: var(--s1) var(--s2); }
+
+/* ---------- race photographs ----------
+   The one image in the app that is a photograph rather than artwork. It leads
+   the listing card and tops the results page, which are the two screens people
+   arrive at cold. */
+
+.evpic {
+  position: relative;
+  margin: calc(var(--s5) * -1) calc(var(--s5) * -1) var(--s3);
+  border-radius: var(--r3) var(--r3) 0 0;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  max-height: 13rem;          /* a header, never the whole card */
+  background: var(--ink);
+}
+.evpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* The card's top border is the accent; with a photo it would cut the picture. */
+.eventcard.haspic { border-top-color: var(--rule); }
+
+.credit {
+  position: absolute; right: var(--s2); bottom: var(--s2);
+  padding: 1px var(--s2); border-radius: var(--r1);
+  background: rgba(0, 0, 0, .55); color: #fff;
+  font-size: .68rem; letter-spacing: .02em;
+}
+
+.racebanner {
+  position: relative;
+  margin: 0 0 var(--s5);
+  border-radius: var(--r3); overflow: hidden;
+  /* Height, not aspect-ratio: with a max-height as well, the ratio wins and
+     the banner shrinks its width to match, leaving it stranded at half the
+     column. The image inside is cover-fitted, so it crops rather than
+     stretches whatever shape the organiser uploaded. */
+  width: 100%; height: clamp(8rem, 20vw, 15rem);
+  background: var(--ink-2);
+}
+.racebanner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* A scrim at the foot, so the heading below never sits against a bright sky. */
+.racebanner::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(9, 12, 16, .55));
+  pointer-events: none;
+}
+.racebanner[hidden] { display: none; }
+
+.photopreview {
+  display: block; width: 100%; max-width: 26rem;
+  aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: var(--r2); border: 1px solid var(--rule);
+}
+
+@media (max-width: 560px) {
+  .racebanner { height: 9rem; }
+}

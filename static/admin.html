@@ -211,6 +211,23 @@
     <label for="schAbout" style="margin-top:.6rem">About the race</label>
     <textarea id="schAbout" rows="3"
       placeholder="A hill run on the old Pedong road. Water at 4 km."></textarea>
+    <h4 style="margin:1.4rem 0 .2rem">Race photo</h4>
+    <p class="note">A photograph of the race &mdash; runners on the road, the
+    start line, the view. It is what people see on the home page and at the top
+    of the results, and it is the difference between a listing worth opening and
+    a line of text. Landscape works best. This is <strong>not</strong> the bib
+    artwork or the certificate background; those live under Artwork.</p>
+    <div class="row">
+      <div><label for="schPhoto">Photo</label>
+        <input type="file" id="schPhoto" accept="image/png,image/jpeg,image/webp"></div>
+      <div><label for="schCredit">Who took it <span class="opt">optional</span></label>
+        <input id="schCredit" maxlength="120" placeholder="Photo: Dawa Sherpa"></div>
+      <button id="schPhotoClear" class="quiet danger narrow">Remove photo</button>
+    </div>
+    <div id="schPhotoPreview" hidden style="margin-top:.6rem">
+      <img id="schPhotoImg" alt="" class="photopreview">
+    </div>
+
     <label for="schEntry" style="margin-top:.6rem">Note for entrants</label>
     <input id="schEntry" placeholder="Entry free. Report by 6:30 am.">
     <div class="row" style="margin-top:.8rem">

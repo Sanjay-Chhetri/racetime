@@ -82,6 +82,15 @@ class Event(Base):
     registration_open = Column(Boolean, nullable=False, default=False)
     entry_note = Column(String(400), nullable=True)
 
+    # A photograph of the race -- runners on the road, the start line, the hill.
+    # A third image on purpose: the bib artwork is a printed banner and the
+    # certificate background is a portrait card, and neither is a photograph of
+    # last year's race, which is what makes a listing worth looking at.
+    photo_url = Column(String(255), nullable=True)
+    photo_blob = Column(LargeBinary, nullable=True)
+    photo_type = Column(String(32), nullable=True)
+    photo_credit = Column(String(120), nullable=True)
+
     races = relationship(
         "Race", back_populates="event",
         cascade="all, delete-orphan", order_by="Race.sequence",
