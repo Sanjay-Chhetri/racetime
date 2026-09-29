@@ -47,6 +47,20 @@
         <input id="home_town" autocapitalize="words" placeholder="Kalimpong"></div>
     </div>
 
+    <label for="birth_year">Year you were born</label>
+    <input id="birth_year" class="num" inputmode="numeric" maxlength="4"
+           placeholder="1995" required>
+    <p class="note tight">Used for age categories, and to keep accounts for
+    under-18s off the public site. Only the year is stored.</p>
+
+    <label class="check consentbox" for="consent">
+      <input type="checkbox" id="consent" required>
+      <span>I agree that my name, results and the details above may be used to
+      run races and show results. My profile stays <strong>private</strong>
+      until I choose otherwise.
+      <a href="/privacy.html" target="_blank">How your details are used</a>.</span>
+    </label>
+
     <p class="fieldErr" id="err" hidden></p>
     <button id="submit" class="primary wide" type="submit">Create account</button>
   </form>

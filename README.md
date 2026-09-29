@@ -29,6 +29,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Setting up a real race](#setting-up-a-real-race)
 - [One event, several distances](#one-event-several-distances)
 - [Runner accounts](#runner-accounts)
+- [Member profiles](#member-profiles)
 - [Upcoming races and entries](#upcoming-races-and-entries)
 - [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
@@ -215,6 +216,29 @@ somebody's total without a recount.
 Placings only score where the placing means something — top three, and never in
 the bottom half of the field. It is the same rule the finisher card uses, so a
 badge and a total never disagree.
+
+## Member profiles
+
+A runner with an account gets a profile at **`/r/their-name`** — photo, town,
+what they have run, their points and badges, all in one place.
+
+**It is private until they choose otherwise**, every time. Race results are
+public regardless, as results are; the profile is the gathering of them into a
+browsable page, and that is the part somebody opts into.
+
+**An account for someone under 18 can never be made public or members-only.**
+The server refuses it; the form merely reflects that. Only a year of birth is
+stored — enough for the rule and for age categories. An account with no year is
+treated as an adult, so nobody who signed up earlier is reclassified.
+
+A hidden profile answers 404 rather than 403, because a 403 would confirm the
+account exists. Email, phone, emergency contact and birth year never appear on
+a public profile whatever the setting.
+
+Sign-up requires consent and records when it was given.
+[`/privacy.html`](static/privacy.html) sets out what is kept and who sees it —
+**placeholder text, to be replaced before taking money or opening the site
+beyond people you know.**
 
 ## Upcoming races and entries
 
@@ -404,6 +428,10 @@ The finish time is by far the largest thing on it, then the runner's name, then
 the event. Bib and average pace sit small in a corner with a QR back to the
 results.
 
+Finishers get **Share** and **Download** side by side. Download always works —
+it never depends on the share sheet, because dismissing that used to leave a
+runner with nothing at all.
+
 A **rank badge appears only when the placing is worth sharing** — top three, and
 never in the bottom half of the field, so "3rd of 4" shows nothing. Splits and
 the verification URL are deliberately absent; they stay on the results page.
@@ -477,6 +505,8 @@ static/
   signup.html       Open a runner account
   login.html        Sign in
   me.html           A runner's own record: races, points, badges, entries
+  profile.html      A runner's public profile, served at /r/<slug>
+  privacy.html      What is kept and who can see it (placeholder)
   admin.html        Race admin — races, entries, start list, artwork, bibs
   checkpoint.html   Volunteer capture screen
   results.html      Public leaderboard

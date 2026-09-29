@@ -208,6 +208,15 @@ class UserOut(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     home_town: Optional[str] = None
+    bio: Optional[str] = None
+    running_since: Optional[int] = None
+    preferred_distances: Optional[str] = None
+    strava_url: Optional[str] = None
+    birth_year: Optional[int] = None
+    visibility: str = "private"
+    slug: Optional[str] = None
+    avatar_url: Optional[str] = None
+    announcements_opt_in: bool = False
     role: str
     is_active: bool
     must_change_password: bool
@@ -265,6 +274,9 @@ class SignUpIn(BaseModel):
     email: str = Field(min_length=3, max_length=190)
     phone: Optional[str] = Field(None, max_length=32)
     home_town: Optional[str] = Field(None, max_length=80)
+    birth_year: Optional[int] = Field(None, ge=1900, le=2100)
+    # Recorded, not assumed. The sign-up form cannot be submitted without it.
+    consent: bool = False
 
 
 class ProfileIn(BaseModel):
@@ -272,6 +284,34 @@ class ProfileIn(BaseModel):
     email: Optional[str] = Field(None, max_length=190)
     phone: Optional[str] = Field(None, max_length=32)
     home_town: Optional[str] = Field(None, max_length=80)
+    bio: Optional[str] = Field(None, max_length=600)
+    running_since: Optional[int] = Field(None, ge=1950, le=2100)
+    preferred_distances: Optional[str] = Field(None, max_length=120)
+    strava_url: Optional[str] = Field(None, max_length=200)
+    birth_year: Optional[int] = Field(None, ge=1900, le=2100)
+    visibility: Optional[Literal["private", "members", "public"]] = None
+    announcements_opt_in: Optional[bool] = None
+
+
+class PublicProfileOut(BaseModel):
+    """A runner as somebody else sees them.
+
+    Deliberately absent: email, phone, emergency contact, exact birth year.
+    Those exist for an organiser to reach somebody, not for the public.
+    """
+    slug: str
+    display_name: str
+    home_town: Optional[str] = None
+    bio: Optional[str] = None
+    running_since: Optional[int] = None
+    preferred_distances: Optional[str] = None
+    strava_url: Optional[str] = None
+    avatar_url: Optional[str] = None
+    visibility: str
+    points: int = 0
+    stats: dict = {}
+    runs: List[dict] = []
+    badges: List[dict] = []
 
 
 class EventScheduleIn(BaseModel):

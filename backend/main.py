@@ -6,6 +6,7 @@ Then open http://localhost:8000/
 import csv
 import io
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -171,6 +172,19 @@ _add_missing_columns("users", {
     "email": "VARCHAR(190)",
     "phone": "VARCHAR(32)",
     "home_town": "VARCHAR(80)",
+    "visibility": "VARCHAR(10)",
+    "bio": "VARCHAR(600)",
+    "running_since": "INTEGER",
+    "preferred_distances": "VARCHAR(120)",
+    "strava_url": "VARCHAR(200)",
+    "birth_year": "INTEGER",
+    "avatar_blob": _BLOB_LATE,
+    "avatar_type": "VARCHAR(32)",
+    "avatar_url": "VARCHAR(255)",
+    "slug": "VARCHAR(48)",
+    "consented_at": "TIMESTAMP",
+    "announcements_opt_in": "BOOLEAN",
+    "last_seen_at": "TIMESTAMP",
 })
 
 
@@ -182,7 +196,8 @@ def _backfill_flags():
     on the way out. Cheap, and idempotent.
     """
     for table, column in (("events", "is_published"),
-                          ("events", "registration_open")):
+                          ("events", "registration_open"),
+                          ("users", "announcements_opt_in")):
         try:
             with engine.begin() as conn:
                 conn.execute(text(
@@ -191,7 +206,23 @@ def _backfill_flags():
             print(f"  Could not backfill {table}.{column}: {type(e).__name__}: {e}")
 
 
+def _backfill_profiles():
+    """Existing accounts predate the profile, so give them a safe default.
+
+    Visibility must land on `private`, not NULL. A NULL here would be read as
+    "not public" by the model and as nothing by the form, and the first person
+    to save their profile would be publishing a setting they never chose.
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE users SET visibility = 'private' WHERE visibility IS NULL"))
+    except Exception as e:                      # noqa: BLE001
+        print(f"  Could not backfill user visibility: {type(e).__name__}: {e}")
+
+
 _backfill_flags()
+_backfill_profiles()
 
 
 def _seed_demo_event():
@@ -553,6 +584,23 @@ def prune_analytics(db: Session = Depends(get_db)):
 # Runners: their account, their record, their entries
 # --------------------------------------------------------------------------
 
+def _make_slug(db: Session, display_name: str, username: str) -> str:
+    """A readable handle for a profile URL.
+
+    Derived from the name, not from the database id: /r/tenzing-bhutia is
+    something a runner will send to their family, and /r/47 tells anyone who
+    receives it how many accounts exist.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", (display_name or username).lower()).strip("-")
+    base = (base or "runner")[:40]
+    slug = base
+    n = 2
+    while db.query(models.User).filter(models.User.slug == slug).first():
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
 def _clean_email(value: str) -> str:
     """Not full RFC validation, which rejects addresses that work. Enough to
     catch a typo before it becomes an account nobody can recover."""
@@ -580,15 +628,24 @@ def sign_up(payload: schemas.SignUpIn, request: Request, response: Response,
     if payload.password.strip().lower() == username:
         raise HTTPException(422, "Your password cannot be your username.")
 
+    if not payload.consent:
+        raise HTTPException(
+            422, "Please agree to how your details are used before continuing.")
+
     user = models.User(
         username=username,
         display_name=payload.display_name.strip(),
         email=email,
         phone=(payload.phone or "").strip() or None,
         home_town=(payload.home_town or "").strip() or None,
+        birth_year=payload.birth_year,
         password_hash=auth.hash_password(payload.password),
         role="runner",
         must_change_password=False,     # they just chose it
+        # Private until they say otherwise. Every time.
+        visibility="private",
+        consented_at=utcnow(),
+        slug=_make_slug(db, payload.display_name, username),
     )
     db.add(user)
     db.commit()
@@ -615,8 +672,103 @@ def update_my_profile(payload: schemas.ProfileIn,
         if clash:
             raise HTTPException(409, "Another account already uses that email.")
         data["email"] = email
+    # A minor cannot publish a profile, whatever the form sent. The client
+    # hides the option; this is the part that actually holds.
+    if data.get("visibility") in ("public", "members"):
+        year = data.get("birth_year", user.birth_year)
+        if year and (utcnow().year - year) < 18:
+            raise HTTPException(
+                422, "An account for someone under 18 cannot have a public profile.")
+
+    if data.get("strava_url"):
+        url = data["strava_url"].strip()
+        if not url.startswith(("https://www.strava.com/", "https://strava.com/")):
+            raise HTTPException(422, "That does not look like a Strava profile link.")
+        data["strava_url"] = url
+
     for field, value in data.items():
         setattr(user, field, (value.strip() or None) if isinstance(value, str) else value)
+
+    if not user.slug:
+        user.slug = _make_slug(db, user.display_name, user.username)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.get("/api/profiles/{slug}", response_model=schemas.PublicProfileOut)
+def public_profile(slug: str, request: Request, db: Session = Depends(get_db)):
+    """Somebody else's runner profile.
+
+    Answers 404 rather than 403 when it may not be seen. A 403 would confirm
+    that the account exists, which is itself something the owner did not agree
+    to publish.
+    """
+    user = db.query(models.User).filter(models.User.slug == slug).first()
+    viewer = auth.optional_user(request, db)
+    if user is None or not user.profile_visible_to(viewer):
+        raise HTTPException(404, "No such profile, or it is not public.")
+
+    record = achievements.profile(db, user)
+    return schemas.PublicProfileOut(
+        slug=user.slug,
+        display_name=user.display_name or user.username,
+        home_town=user.home_town,
+        bio=user.bio,
+        running_since=user.running_since,
+        preferred_distances=user.preferred_distances,
+        strava_url=user.strava_url,
+        avatar_url=user.avatar_url,
+        visibility=user.visibility,
+        points=record["points"],
+        stats=record["stats"],
+        # The race list without the scoring breakdown, which is the runner's
+        # own business rather than a visitor's.
+        runs=[{k: r[k] for k in ("event_code", "event_name", "date", "race",
+                                 "distance_km", "status", "finish_seconds",
+                                 "position", "field_size", "certificate")}
+              for r in record["runs"]],
+        badges=[b for b in record["badges"] if b["earned"]],
+    )
+
+
+@app.post("/api/me/avatar", response_model=schemas.UserOut)
+async def upload_avatar(request: Request, file: UploadFile = File(...),
+                        user: models.User = Depends(auth.require_user),
+                        db: Session = Depends(get_db)):
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, "That file is empty")
+    if len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"The photo must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+    user.avatar_type = _sniff_image(blob)
+    user.avatar_blob = blob
+    user.avatar_url = f"/api/profiles/{user.slug}/avatar?v={secrets.token_hex(4)}"
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.get("/api/profiles/{slug}/avatar")
+def get_avatar(slug: str, request: Request, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.slug == slug).first()
+    viewer = auth.optional_user(request, db)
+    if user is None or not user.avatar_blob or not user.profile_visible_to(viewer):
+        raise HTTPException(404, "No photo")
+    return Response(
+        content=user.avatar_blob,
+        media_type=user.avatar_type or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@app.delete("/api/me/avatar", response_model=schemas.UserOut)
+def clear_avatar(user: models.User = Depends(auth.require_user),
+                 db: Session = Depends(get_db)):
+    user.avatar_blob = None
+    user.avatar_type = None
+    user.avatar_url = None
     db.commit()
     db.refresh(user)
     return user
@@ -1671,6 +1823,19 @@ def index():
 # these win over it. The API would refuse an anonymous caller anyway and the
 # page would render empty -- but an admin screen that loads at all, for anyone
 # who guesses the URL, is not something to leave standing.
+@app.get("/r/{slug}", include_in_schema=False)
+def profile_page(slug: str):
+    """A runner's shareable address.
+
+    /r/tenzing-bhutia is something somebody will send to their family;
+    /profile.html#47 is not. The page decides nothing -- it asks the API, which
+    applies the visibility rules and answers 404 when the profile may not be
+    seen.
+    """
+    return FileResponse(STATIC_DIR / "profile.html",
+                        headers={"Cache-Control": "no-cache, must-revalidate"})
+
+
 @app.get("/admin.html", include_in_schema=False)
 def admin_page(request: Request, db: Session = Depends(get_db)):
     # Not merely "is anyone signed in?" any more. Runners hold accounts too,

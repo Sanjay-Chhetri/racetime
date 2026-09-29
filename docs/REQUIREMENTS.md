@@ -728,6 +728,54 @@ powers of the race director.
   reappearing on the next deploy. `RACETIME_NO_DEMO=1` skips it.
 - **FR-18.2** Failing to create it never prevents the app from starting.
 
+### FR-19 — Member profiles
+
+- **FR-19.1** A registered runner has a profile: photo, town, a short bio, the
+  year they started running, preferred distances, an optional Strava link, and
+  their race history and badges pulled from results.
+- **FR-19.2** **Private is the default and stays the default.** Visibility is
+  `private` / `members` / `public`, set to private at sign-up every time. A
+  profile carries a real name, a face and a home town; somebody who has not
+  chosen to publish that has not published it.
+- **FR-19.3** **An account for someone under 18 can never be public or
+  members-only.** The server refuses the change and the read refuses the
+  profile, whatever the stored setting says. The form disables the options and
+  explains why, but the rule lives on the server. RaceTime already times a
+  school event; a browsable page of a child's name, face, town and movements is
+  not something to leave to a toggle.
+- **FR-19.4** Age is held as a **year of birth only** — enough for the rule and
+  for age categories, less than a full date, which there is no reason to hold.
+  An account with no year is treated as an adult, so accounts predating the
+  field are not silently reclassified as children.
+- **FR-19.5** A hidden profile answers **404, not 403**. A 403 would confirm the
+  account exists, which is itself something the owner did not publish.
+- **FR-19.6** A public profile carries **no email, phone, emergency contact or
+  birth year**, whatever the visibility setting. Those exist for an organiser to
+  reach somebody.
+- **FR-19.7** Operators can always see a profile, because somebody has to be
+  able to.
+- **FR-19.8** Each runner gets a readable shareable address, `/r/<slug>`,
+  derived from their name rather than their row id — `/r/47` tells whoever
+  receives it how many accounts exist.
+- **FR-19.9** Sign-up **requires consent** and records the time it was given;
+  it is not a checkbox that can be re-interpreted later. `/privacy.html` sets
+  out what is kept, what is public, and the under-18 rule.
+- **FR-19.10** A Strava link must be a Strava URL, and opens with
+  `rel="noopener noreferrer"` because it is user-supplied.
+- **FR-19.11** Members may opt in to announcements. Nothing is sent without it.
+
+### FR-20 — Certificates are downloadable, not only shareable
+
+- **FR-20.1** The finisher card offers **Share** and **Download** side by side.
+  Download always works and never depends on the share sheet.
+- **FR-20.2** Previously the only action opened the native share sheet where
+  available; **dismissing it left the runner with nothing**, and there was no
+  plain download at all. A finisher should not lose their certificate to a
+  stray tap.
+- **FR-20.3** A dismissed share says where the file still is, rather than
+  failing silently; a share that fails for any other reason falls through to a
+  download.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -773,7 +821,11 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `POST` | `/api/auth/password` | Change your own; signs out other browsers |
 | | `POST` | `/api/auth/signup` | Open a runner account; the role is fixed server-side |
 | 🔒 | `GET` | `/api/me/profile` | Your own account |
-| 🔒 | `PATCH` | `/api/me/profile` | Change your name, email, phone or town |
+| 🔒 | `PATCH` | `/api/me/profile` | Your details, bio, visibility and Strava link |
+| | `GET` | `/api/profiles/{slug}` | A runner's public profile; 404 when it may not be seen |
+| | `GET` | `/api/profiles/{slug}/avatar` | Their photo, subject to the same rule |
+| 🔒 | `POST` | `/api/me/avatar` | Upload your profile photo |
+| 🔒 | `DELETE` | `/api/me/avatar` | Remove it |
 | ⭐ | `GET` | `/api/users` | List accounts |
 | ⭐ | `POST` | `/api/users` | Create an account |
 | ⭐ | `PATCH` | `/api/users/{user_id}` | Role, active flag, password reset |
@@ -872,6 +924,8 @@ the role. Interactive docs at `/docs` while the server runs.
 | Live results | `/results.html#<code>` | Public | no |
 | Finisher card | `/certificate.html#<code>/<bib>` | Runner | no |
 | My running | `/me.html` | Runner | yes |
+| Runner profile | `/r/<slug>` (serves `/profile.html`) | Public, members or nobody | no |
+| How your details are used | `/privacy.html` | Anyone | no |
 | Create an account | `/signup.html` | Runner | no |
 | Sign in | `/login.html` | Operator or runner | no |
 

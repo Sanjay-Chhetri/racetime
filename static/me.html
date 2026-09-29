@@ -77,6 +77,56 @@
       <input id="pfPhone" inputmode="tel"></div>
     <div><label for="pfTown">Where you are from</label>
       <input id="pfTown" autocapitalize="words" placeholder="Kalimpong"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div class="narrow"><label for="pfSince">Running since</label>
+      <input id="pfSince" class="num" inputmode="numeric" placeholder="2019"></div>
+    <div><label for="pfDistances">Distances you like</label>
+      <input id="pfDistances" placeholder="5K, 10K, hill races"></div>
+    <div><label for="pfStrava">Strava <span class="opt">optional</span></label>
+      <input id="pfStrava" autocapitalize="none"
+             placeholder="https://www.strava.com/athletes/…"></div>
+  </div>
+  <label for="pfBio" style="margin-top:.6rem">About you
+    <span class="opt">optional</span></label>
+  <textarea id="pfBio" rows="3" maxlength="600"
+    placeholder="Started running in the hills above Pedong…"></textarea>
+
+  <h3 style="margin:1.6rem 0 .2rem">Your photo</h3>
+  <div class="row">
+    <div><label for="pfAvatar">Profile photo</label>
+      <input type="file" id="pfAvatar" accept="image/png,image/jpeg,image/webp"></div>
+    <button id="pfAvatarClear" hidden>Remove photo</button>
+  </div>
+  <div id="pfAvatarWrap" hidden style="margin-top:.6rem">
+    <img id="pfAvatarImg" alt="" class="avatarpreview">
+  </div>
+
+  <h3 style="margin:1.6rem 0 .2rem">Who can see your profile</h3>
+  <p class="note">Your results are public whatever you choose here — race
+  results always are. This is about your <em>profile</em>: your photo, where you
+  are from, and everything you have run gathered in one place.</p>
+  <div class="row">
+    <div><label for="pfVisibility">Visibility</label>
+      <select id="pfVisibility">
+        <option value="private">Private — only you and the organisers</option>
+        <option value="members">Members — anyone signed in to RaceTime</option>
+        <option value="public">Public — anyone with the link</option>
+      </select></div>
+    <div><label for="pfLink">Your profile link</label>
+      <input id="pfLink" readonly></div>
+    <button id="pfCopy" class="narrow">Copy</button>
+  </div>
+  <p class="note tight" id="pfMinorNote" hidden>
+    This account is for someone under 18, so the profile stays private. Race
+    results are unaffected.
+  </p>
+  <label class="check" style="margin-top:.8rem" for="pfAnnounce">
+    <input type="checkbox" id="pfAnnounce">
+    Tell me about upcoming races and workshops
+  </label>
+
+  <div class="row" style="margin-top:1rem">
     <button id="pfSave" class="primary narrow">Save</button>
   </div>
   <p class="fieldErr" id="pfErr" hidden></p>

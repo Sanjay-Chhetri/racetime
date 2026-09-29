@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<title>Runner · RaceTime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="wide">
+
+<header class="sitebar">
+  <a class="brand" href="/">
+    <span class="brandmark">R</span>
+    <span class="brandname">RaceTime</span>
+  </a>
+  <nav class="sitenav">
+    <span id="wallpaper"></span>
+    <a class="linkbtn" href="/">Find a race</a>
+  </nav>
+</header>
+
+<main id="profile" hidden>
+  <section class="runnerhead">
+    <div class="runneravatar" id="avatarWrap" hidden>
+      <img id="avatar" alt="">
+    </div>
+    <div class="runnerid">
+      <h1 id="name"></h1>
+      <p class="note" id="where"></p>
+      <p id="bio"></p>
+      <p class="note" id="links"></p>
+    </div>
+  </section>
+
+  <div class="scoreboard" id="totals"></div>
+
+  <section class="panel" id="badgePanel" hidden>
+    <h2 style="margin-top:0">Achievements</h2>
+    <div class="badges" id="badges"></div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin-top:0">Races</h2>
+    <div id="runs"></div>
+  </section>
+</main>
+
+<div class="panel" id="missing" hidden>
+  <div class="empty">
+    <div class="t">This profile is not public</div>
+    <div class="h">Either there is no runner at this address, or they have
+    chosen to keep their profile private. Race results themselves are always
+    public &mdash; <a href="/">find a race</a>.</div>
+  </div>
+</div>
+
+<footer class="sitefoot">
+  <p class="footlead">RaceTime — chip-free timing for road races in the
+  Kalimpong and Pedong hills.</p>
+</footer>
+
+<script type="module" src="/js/profile.js"></script>
+</body>
+</html>

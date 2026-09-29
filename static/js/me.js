@@ -5,7 +5,7 @@
    corrected scan changes a total the next time this loads rather than leaving
    a points table quietly disagreeing with the results it came from. */
 
-import { esc, ok, fail, withBusy } from '/js/ui.js';
+import { esc, ok, fail, withBusy, fitImageForUpload } from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -61,9 +61,11 @@ const when = iso => iso
 /* ---------- tabs ---------- */
 
 const TABS = ['runs', 'badges', 'entries', 'profile'];
+let tab = 'runs';
 
 function showTab(name) {
   if (!TABS.includes(name)) name = 'runs';
+  tab = name;
   document.querySelectorAll('.tab').forEach(b => {
     const on = b.dataset.tab === name;
     b.classList.toggle('on', on);
@@ -79,6 +81,14 @@ function showTab(name) {
 
 document.querySelectorAll('.tab').forEach(b => {
   b.onclick = () => showTab(b.dataset.tab);
+});
+
+// Changing only the hash is a same-document navigation: the module does not
+// re-run, so without this a link or a bookmark to /me.html#profile from
+// /me.html#runs left the wrong panel open, and back and forward did nothing.
+window.addEventListener('hashchange', () => {
+  const wanted = location.hash.slice(1);
+  if (wanted && wanted !== tab) showTab(wanted);
 });
 
 /* ---------- the record ---------- */
@@ -230,6 +240,8 @@ async function loadEntries() {
 
 /* ---------- profile ---------- */
 
+let minor = false;
+
 async function loadProfile() {
   const me = await api('/auth/me');
   const u = me.user;
@@ -239,6 +251,29 @@ async function loadProfile() {
   $('pfEmail').value = u.email || '';
   $('pfPhone').value = u.phone || '';
   $('pfTown').value = u.home_town || '';
+  $('pfSince').value = u.running_since || '';
+  $('pfDistances').value = u.preferred_distances || '';
+  $('pfStrava').value = u.strava_url || '';
+  $('pfBio').value = u.bio || '';
+  $('pfVisibility').value = u.visibility || 'private';
+  $('pfAnnounce').checked = Boolean(u.announcements_opt_in);
+
+  $('pfAvatarWrap').hidden = !u.avatar_url;
+  $('pfAvatarClear').hidden = !u.avatar_url;
+  if (u.avatar_url) $('pfAvatarImg').src = u.avatar_url;
+
+  const link = u.slug ? `${location.origin}/r/${u.slug}` : '';
+  $('pfLink').value = link;
+
+  // The server refuses a public profile for an under-18 account; the form
+  // should not offer what will be refused.
+  const year = new Date().getFullYear();
+  minor = Boolean(u.birth_year) && (year - u.birth_year) < 18;
+  $('pfMinorNote').hidden = !minor;
+  [...$('pfVisibility').options].forEach(o => {
+    o.disabled = minor && o.value !== 'private';
+  });
+  if (minor) $('pfVisibility').value = 'private';
 
   // An operator who lands here has an admin screen to be at instead.
   if (u.role !== 'runner') {
@@ -250,19 +285,60 @@ async function loadProfile() {
 $('pfSave').onclick = e => withBusy(e.currentTarget, async () => {
   $('pfErr').hidden = true;
   try {
+    if ($('pfAvatar').files[0]) {
+      const fd = new FormData();
+      fd.append('file', await fitImageForUpload($('pfAvatar').files[0], m => {
+        $('pfErr').textContent = m;
+        $('pfErr').hidden = false;
+        $('pfErr').classList.add('plain');
+      }));
+      await api('/me/avatar', { method: 'POST', body: fd });
+      $('pfAvatar').value = '';
+    }
+    const since = parseInt($('pfSince').value.trim(), 10);
     await api('/me/profile', json('PATCH', {
       display_name: $('pfName').value.trim(),
       email: $('pfEmail').value.trim(),
       phone: $('pfPhone').value.trim(),
       home_town: $('pfTown').value.trim(),
+      bio: $('pfBio').value.trim(),
+      running_since: Number.isFinite(since) ? since : null,
+      preferred_distances: $('pfDistances').value.trim(),
+      strava_url: $('pfStrava').value.trim(),
+      visibility: $('pfVisibility').value,
+      announcements_opt_in: $('pfAnnounce').checked,
     }));
+    $('pfErr').classList.remove('plain');
     ok('Saved.');
     loadProfile();
   } catch (err) {
+    $('pfErr').classList.remove('plain');
     $('pfErr').textContent = err.message;
     $('pfErr').hidden = false;
   }
 });
+
+$('pfAvatarClear').onclick = async () => {
+  try {
+    await api('/me/avatar', { method: 'DELETE' });
+    ok('Photo removed.');
+    loadProfile();
+  } catch (err) { fail(err.message); }
+};
+
+$('pfCopy').onclick = async () => {
+  const link = $('pfLink').value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    ok('Link copied.');
+  } catch {
+    // Clipboard access can be refused; selecting it is the fallback that
+    // always works.
+    $('pfLink').select();
+    ok('Press Ctrl+C to copy.');
+  }
+};
 
 $('pwSave').onclick = e => withBusy(e.currentTarget, async () => {
   $('pwErr').hidden = true;

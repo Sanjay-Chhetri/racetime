@@ -248,6 +248,29 @@ class User(Base):
     email = Column(String(190), unique=True, nullable=True, index=True)
     phone = Column(String(32), nullable=True)
     home_town = Column(String(80), nullable=True)
+
+    # --- the public profile ---
+    # private | members | public. Private is the default and stays the default:
+    # a profile carries a real name, a face and a home town, and the person who
+    # has not chosen to publish that has not published it.
+    visibility = Column(String(10), nullable=False, default="private")
+    bio = Column(String(600), nullable=True)
+    running_since = Column(Integer, nullable=True)       # a year, not a date
+    preferred_distances = Column(String(120), nullable=True)
+    strava_url = Column(String(200), nullable=True)
+    # Year of birth only. Enough to keep a child's profile off the open web,
+    # and less than a full date of birth, which there is no reason to hold.
+    birth_year = Column(Integer, nullable=True)
+    avatar_blob = Column(LargeBinary, nullable=True)
+    avatar_type = Column(String(32), nullable=True)
+    avatar_url = Column(String(255), nullable=True)
+    # A stable, guessable-but-not-enumerable handle for the shareable URL.
+    slug = Column(String(48), unique=True, nullable=True, index=True)
+    # Recorded at sign-up. Not a checkbox that can be quietly re-interpreted
+    # later: the time it was given is part of the consent.
+    consented_at = Column(DateTime(timezone=True), nullable=True)
+    announcements_opt_in = Column(Boolean, nullable=False, default=False)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     # Set when an account is created or reset by a super admin, so the app can
     # insist on a new password before it is used for anything.
@@ -261,6 +284,34 @@ class User(Base):
     @property
     def is_super(self) -> bool:
         return self.role == "super_admin"
+
+    @property
+    def is_minor(self) -> bool:
+        """Under 18 on the best information held.
+
+        Unknown age is treated as an adult -- otherwise every account created
+        before this field existed would be silently reclassified as a child,
+        and every one of those profiles would vanish from the site.
+        """
+        if not self.birth_year:
+            return False
+        return (utcnow().year - self.birth_year) < 18
+
+    def profile_visible_to(self, viewer) -> bool:
+        """Who may see this profile.
+
+        A minor's profile is never public and never members-only, whatever the
+        toggle says -- the toggle is a preference and this is a rule.
+        """
+        if viewer is not None and (viewer.id == self.id or viewer.is_operator):
+            return True
+        if self.is_minor:
+            return False
+        if self.visibility == "public":
+            return True
+        if self.visibility == "members":
+            return viewer is not None
+        return False
 
     @property
     def is_operator(self) -> bool:

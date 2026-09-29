@@ -19,6 +19,7 @@ $('signupForm').onsubmit = e => {
   e.preventDefault();
   return withBusy($('submit'), async () => {
     $('err').hidden = true;
+    const year = parseInt($('birth_year').value.trim(), 10);
     const payload = {
       display_name: $('display_name').value.trim(),
       email: $('email').value.trim(),
@@ -26,9 +27,21 @@ $('signupForm').onsubmit = e => {
       password: $('password').value,
       phone: $('phone').value.trim() || null,
       home_town: $('home_town').value.trim() || null,
+      birth_year: Number.isFinite(year) ? year : null,
+      consent: $('consent').checked,
     };
     if (payload.password.length < 8) {
       fail('Your password needs at least 8 characters.');
+      return;
+    }
+    const thisYear = new Date().getFullYear();
+    if (!payload.birth_year || payload.birth_year < 1900 || payload.birth_year > thisYear) {
+      fail('Please give the year you were born, as four digits.');
+      $('birth_year').focus();
+      return;
+    }
+    if (!payload.consent) {
+      fail('Please tick the box to say how your details may be used.');
       return;
     }
 

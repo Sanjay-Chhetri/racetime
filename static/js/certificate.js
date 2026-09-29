@@ -415,30 +415,61 @@ function fileName() {
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
 }
 
+/** Put the rendered card on the device as a file. Always available. */
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);      // Firefox needs it in the document
+  a.click();
+  a.remove();
+  // Revoking immediately can cancel the download on some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+async function downloadImage() {
+  const blob = await renderPng();
+  if (!blob) throw new Error('Could not render the image.');
+  downloadBlob(blob, fileName());
+  ok('Certificate saved to your device.');
+}
+
 async function saveImage() {
   const blob = await renderPng();
   if (!blob) throw new Error('Could not render the image.');
   const file = new File([blob], fileName(), { type: 'image/png' });
 
-  // The share sheet is what people actually use on a phone; the download is
-  // the desktop path.
+  // The share sheet is what people use on a phone. It is offered, never
+  // relied on: a runner who dismisses it used to be left with nothing at all,
+  // and a finisher should not lose their certificate to a stray tap. Hence the
+  // Download button beside this one, and the fall-through below.
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: ev.name });
       return;
     } catch (e) {
-      if (e && e.name === 'AbortError') return;   // they closed the sheet
-      // Anything else falls through to a download.
+      if (e && e.name === 'AbortError') {
+        // They closed the sheet. Say where the file still is, rather than
+        // leaving them wondering whether anything happened.
+        ok('Not shared. Use Download to keep a copy.');
+        return;
+      }
+      // A share that failed for any other reason falls through to a download,
+      // so the card still reaches the device.
     }
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  a.click();
-  URL.revokeObjectURL(url);
-  ok('Image saved.');
+  downloadBlob(blob, file.name);
+  ok('Certificate saved to your device.');
 }
+
+$('download').onclick = e => withBusy(e.currentTarget, async () => {
+  try {
+    await downloadImage();
+  } catch (err) {
+    fail(err.message || 'Could not save the certificate.');
+  }
+});
 
 $('save').onclick = e => withBusy(e.currentTarget, async () => {
   try { await saveImage(); } catch (err) { fail(err.message); }
