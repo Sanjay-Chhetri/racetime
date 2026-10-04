@@ -1893,3 +1893,33 @@ label.check input { width: auto; flex: none; margin: 0; }
 }
 .consentbox input { margin-top: .2rem; }
 .consentbox strong { color: var(--paper); }
+
+/* The attendance list, folded inside a workshop card. */
+.wspeople {
+  margin-top: var(--s3); padding-top: var(--s3);
+  border-top: 1px solid var(--rule-soft);
+}
+.wspeople[hidden] { display: none; }
+.wspeople table { margin-top: var(--s2); }
+
+/* ---------- the participation card ----------
+
+   A workshop usually has no artwork, and the finisher card's fallback is a
+   flat accent colour behind a dark scrim -- which on its own reads as a
+   mistake rather than a design. This gives the plain case a ground of its own. */
+
+.share-card.plain {
+  background:
+    radial-gradient(90% 60% at 50% 8%, rgba(242, 197, 0, .20), transparent 60%),
+    linear-gradient(170deg, #1d2431 0%, #14181d 55%, #0f1319 100%);
+}
+.share-card.plain::before { background: rgba(9, 12, 16, .30); }
+
+/* The session is what the card is about, so it carries more weight here than
+   the race name does on a finisher card. */
+.share-card .session {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 58px; line-height: 1.05;
+  margin-top: 26px; max-width: 880px;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .5);
+}

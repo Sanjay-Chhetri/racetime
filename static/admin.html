@@ -77,6 +77,9 @@
     <button class="tab" role="tab" data-tab="entries" id="tab-entries"
             aria-controls="panel-entries">Entries
       <span class="tab-n" id="nEntries"></span></button>
+    <button class="tab" role="tab" data-tab="workshops" id="tab-workshops"
+            aria-controls="panel-workshops">Workshops
+      <span class="tab-n" id="nWorkshops"></span></button>
     <button class="tab" role="tab" data-tab="analytics" id="tab-analytics"
             aria-controls="panel-analytics">Visitors</button>
     <button class="tab" role="tab" data-tab="messages" id="tab-messages"
@@ -168,6 +171,51 @@
       deleted. It cannot tell you how long anyone stayed &mdash; that needs a
       script on the page, which is what this avoids.
     </p>
+  </section>
+
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-workshops" data-tab="workshops" aria-labelledby="tab-workshops">
+    <p class="note">Free sessions to bring runners together. Nothing is shown
+    publicly until you publish it, and people need an account to take a place
+    &mdash; which is what turns a workshop into a member.</p>
+
+    <div id="wsList"></div>
+
+    <details style="margin-top:1.2rem" id="wsNewWrap">
+      <summary class="note">Add a workshop</summary>
+      <label for="wsTitle" style="margin-top:.6rem">Title</label>
+      <input id="wsTitle" placeholder="Hill running basics">
+      <label for="wsDesc">What it covers</label>
+      <textarea id="wsDesc" rows="3"
+        placeholder="Pacing on a climb, breathing, and coming down without wrecking your knees."></textarea>
+      <div class="row" style="margin-top:.6rem">
+        <div><label for="wsWhen">Date and time</label>
+          <input id="wsWhen" type="datetime-local"></div>
+        <div class="narrow"><label for="wsMins">Minutes</label>
+          <input id="wsMins" class="num" value="90"></div>
+        <div class="narrow"><label for="wsMode">Where</label>
+          <select id="wsMode">
+            <option value="in_person">In person</option>
+            <option value="online">Online</option>
+          </select></div>
+        <div class="narrow"><label for="wsCap">Places</label>
+          <input id="wsCap" class="num" placeholder="no limit"></div>
+      </div>
+      <div class="row" style="margin-top:.6rem">
+        <div id="wsVenueWrap"><label for="wsVenue">Venue</label>
+          <input id="wsVenue" placeholder="Pedong community hall"></div>
+        <div id="wsLinkWrap" hidden><label for="wsLink">Joining link</label>
+          <input id="wsLink" placeholder="https://meet.google.com/…"></div>
+        <div><label for="wsHost">Who is taking it</label>
+          <input id="wsHost" placeholder="Sanjay Chhetri"></div>
+      </div>
+      <p class="note tight">A joining link is only ever sent to people who have
+      a place. It is not on the public listing.</p>
+      <div class="row" style="margin-top:.8rem">
+        <button id="wsAdd" class="primary narrow">Create</button>
+      </div>
+      <p class="fieldErr" id="wsErr" hidden></p>
+    </details>
   </section>
 
   <section class="panel noprint tabpanel" role="tabpanel" hidden

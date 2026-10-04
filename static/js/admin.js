@@ -206,7 +206,7 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
 // Tabs that need a race open, and tabs that belong to the operator.
 const RACE_TABS = ['runners', 'entries', 'races', 'checkpoints',
                    'artwork', 'reads'];
-const OPS_TABS = ['members', 'analytics', 'messages', 'account'];
+const OPS_TABS = ['members', 'workshops', 'analytics', 'messages', 'account'];
 const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
 
@@ -245,6 +245,7 @@ function showTab(name, { push = true } = {}) {
   if (name === 'members') loadMembers();
   if (name === 'analytics') loadAnalytics();
   if (name === 'messages') loadMessages();
+  if (name === 'workshops') loadWorkshops();
   if (name === 'entries') loadEntries();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
@@ -1168,6 +1169,199 @@ async function loadEntries() {
     };
   });
 }
+
+/* ---------- workshops ---------- */
+
+const WS_STATUS = {
+  registered: ['go', 'has a place'],
+  waitlisted: ['wait', 'waiting'],
+  attended: ['go', 'attended'],
+  cancelled: ['', 'cancelled'],
+  no_show: ['stop', 'did not come'],
+};
+
+function wsError(msg) {
+  const el = $('wsErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+$('wsMode').onchange = () => {
+  const online = $('wsMode').value === 'online';
+  $('wsLinkWrap').hidden = !online;
+  $('wsVenueWrap').hidden = online;
+};
+
+async function loadWorkshops() {
+  const host = $('wsList');
+  host.innerHTML = '<p class="note">Loading…</p>';
+  let rows;
+  try {
+    rows = await api('/workshops');
+  } catch (e) {
+    host.innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+  $('nWorkshops').textContent = rows.length || '';
+
+  if (!rows.length) {
+    host.innerHTML = '<div class="empty"><div class="t">No workshops yet</div>'
+      + '<div class="h">Add one below. A free session is the easiest way to '
+      + 'turn a runner into a member.</div></div>';
+    return;
+  }
+
+  host.innerHTML = rows.map(w => `
+    <article class="runcard" data-ws="${esc(w.slug)}">
+      <div class="runhead">
+        <div>
+          <h3>${esc(w.title)}</h3>
+          <p class="note">${esc([
+            w.starts_at ? new Date(w.starts_at).toLocaleString() : 'No date yet',
+            w.mode === 'online' ? 'Online' : (w.venue || 'In person'),
+            w.host_name,
+          ].filter(Boolean).join(' · '))}</p>
+        </div>
+        <span class="tag ${w.is_published ? 'go' : ''}">${
+          w.is_published ? 'published' : 'draft'}</span>
+      </div>
+      <div class="runbody">
+        <div class="runmeta">
+          <span class="tag">${w.places_taken} signed up</span>
+          ${w.capacity ? `<span class="tag">${w.places_left} of ${w.capacity} left</span>` : ''}
+          ${w.waitlisted ? `<span class="tag wait">${w.waitlisted} waiting</span>` : ''}
+        </div>
+      </div>
+      <div class="runacts">
+        <button class="quiet" data-people="${esc(w.slug)}">Who is coming</button>
+        <button class="quiet" data-pub="${esc(w.slug)}" data-to="${!w.is_published}">
+          ${w.is_published ? 'Unpublish' : 'Publish'}</button>
+        <button class="quiet" data-open="${esc(w.slug)}" data-to="${!w.registration_open}">
+          ${w.registration_open ? 'Close registration' : 'Reopen registration'}</button>
+        <button class="quiet danger" data-del="${esc(w.slug)}">Delete</button>
+      </div>
+      <div class="wspeople" data-list="${esc(w.slug)}" hidden></div>
+    </article>`).join('');
+
+  const patch = async (slug, body) => {
+    wsError('');
+    try {
+      await api(`/workshops/${encodeURIComponent(slug)}`, json('PATCH', body));
+      loadWorkshops();
+    } catch (e) { wsError(e.message); }
+  };
+
+  host.querySelectorAll('[data-pub]').forEach(b => {
+    b.onclick = () => patch(b.dataset.pub, { is_published: b.dataset.to === 'true' });
+  });
+  host.querySelectorAll('[data-open]').forEach(b => {
+    b.onclick = () => patch(b.dataset.open, { registration_open: b.dataset.to === 'true' });
+  });
+  host.querySelectorAll('[data-del]').forEach(b => {
+    b.onclick = async () => {
+      if (!await confirmDialog({
+        title: 'Delete this workshop?',
+        body: 'It disappears for everyone. A workshop somebody has already '
+            + 'attended cannot be deleted — unpublish it instead.',
+        confirm: 'Delete',
+      })) return;
+      wsError('');
+      try {
+        await api(`/workshops/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
+        loadWorkshops();
+      } catch (e) { wsError(e.message); }
+    };
+  });
+  host.querySelectorAll('[data-people]').forEach(b => {
+    b.onclick = () => showWorkshopPeople(b.dataset.people);
+  });
+}
+
+async function showWorkshopPeople(slug) {
+  const box = document.querySelector(`[data-list="${CSS.escape(slug)}"]`);
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<p class="note">Loading…</p>';
+
+  let rows;
+  try {
+    rows = await api(`/workshops/${encodeURIComponent(slug)}/registrations`);
+  } catch (e) {
+    box.innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+  if (!rows.length) {
+    box.innerHTML = '<p class="note">Nobody has signed up yet.</p>';
+    return;
+  }
+
+  box.innerHTML = `<p class="note tight">Tick people off as they arrive. That is
+    what gives them their participation certificate.</p>
+    <table class="roster"><tbody>` + rows.map(r => {
+    const [tone, label] = WS_STATUS[r.status] || ['', r.status];
+    return `<tr>
+      <td><strong>${esc(r.runner || r.username || '')}</strong>
+        <div class="note tight">${esc(r.email || '')}</div></td>
+      <td><span class="tag ${tone}">${esc(label)}</span></td>
+      <td class="num">
+        ${r.status !== 'attended'
+          ? `<button class="quiet" data-att="${r.id}" data-slug="${esc(slug)}">Came</button>` : ''}
+        ${r.status === 'attended'
+          ? `<button class="quiet" data-att="${r.id}" data-slug="${esc(slug)}"
+                data-back="1">Undo</button>` : ''}
+        ${!['cancelled', 'no_show'].includes(r.status)
+          ? `<button class="quiet danger" data-miss="${r.id}" data-slug="${esc(slug)}">Absent</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('') + '</tbody></table>';
+
+  const mark = async (id, status, slugAgain) => {
+    try {
+      await api(`/workshop-registrations/${id}`, json('PATCH', { status }));
+      box.hidden = true;
+      await loadWorkshops();
+      showWorkshopPeople(slugAgain);
+    } catch (e) { wsError(e.message); }
+  };
+  box.querySelectorAll('[data-att]').forEach(b => {
+    b.onclick = () => mark(b.dataset.att,
+      b.dataset.back ? 'registered' : 'attended', b.dataset.slug);
+  });
+  box.querySelectorAll('[data-miss]').forEach(b => {
+    b.onclick = () => mark(b.dataset.miss, 'no_show', b.dataset.slug);
+  });
+}
+
+$('wsAdd').onclick = e => withBusy(e.currentTarget, async () => {
+  wsError('');
+  const title = $('wsTitle').value.trim();
+  if (!title) { wsError('Give the workshop a title.'); return; }
+  const when = $('wsWhen').value;
+  const cap = parseInt($('wsCap').value.trim(), 10);
+  const mins = parseInt($('wsMins').value.trim(), 10);
+  try {
+    await api('/workshops', json('POST', {
+      title,
+      description: $('wsDesc').value.trim() || null,
+      starts_at: when ? new Date(when).toISOString() : null,
+      duration_minutes: Number.isFinite(mins) ? mins : null,
+      mode: $('wsMode').value,
+      venue: $('wsMode').value === 'in_person'
+        ? ($('wsVenue').value.trim() || null) : null,
+      meeting_link: $('wsMode').value === 'online'
+        ? ($('wsLink').value.trim() || null) : null,
+      host_name: $('wsHost').value.trim() || null,
+      capacity: Number.isFinite(cap) ? cap : null,
+      is_published: false,
+    }));
+    ['wsTitle', 'wsDesc', 'wsWhen', 'wsVenue', 'wsLink', 'wsHost', 'wsCap']
+      .forEach(id => { $(id).value = ''; });
+    ok('Created as a draft. Publish it when you are ready.');
+    $('wsNewWrap').open = false;
+    loadWorkshops();
+  } catch (err) { wsError(err.message); }
+});
 
 /* ---------- messages ---------- */
 

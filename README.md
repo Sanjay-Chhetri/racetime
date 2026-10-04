@@ -31,6 +31,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Runner accounts](#runner-accounts)
 - [Member profiles](#member-profiles)
 - [Upcoming races and entries](#upcoming-races-and-entries)
+- [Workshops](#workshops)
 - [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
 - [Signing in](#signing-in)
@@ -256,6 +257,63 @@ entries open, so you can walk the whole path — enter, confirm, print a bib,
 scan it, see the result, collect the certificate — before a real race depends
 on it. Delete it when you are done; it does not come back. `RACETIME_NO_DEMO=1`
 skips it.
+
+## Workshops
+
+A race happens once. A workshop is what brings people back between races — a
+coaching session with a room, a register and a limit.
+
+Open **Workshops** in race admin and add one. Only the title is required; fill
+in the rest when you know it.
+
+| Field | What it does |
+|---|---|
+| Start and length | Shown on the listing, soonest first |
+| Mode | `in person` asks for a venue, `online` asks for a joining link |
+| Host | Who is taking it |
+| Capacity | Leave it **empty for no limit**. Don't put `0` — that is a different thing |
+| Cover image | Used on the card and behind the certificate |
+| Published | Off until you turn it on |
+
+**Unpublished means invisible**, not greyed out: it is missing from the list and
+the address answers "no such workshop". Only you can see it while you finish
+writing it.
+
+Members register from the home page. When the room is full they go on a
+**waitlist** instead of being turned away, and they are told which they got.
+If somebody drops out, or you raise the capacity, the next person waiting is
+moved up automatically — in the order they joined.
+
+**The joining link for an online session only reaches people who have a
+place.** Not the listing, not the waitlist, not the public page. Otherwise the
+capacity means nothing.
+
+On the day, open the register in admin — it carries names and email addresses,
+so you can let people in — and tick off who turned up. That is timestamped.
+Nobody can tick their own name.
+
+Anyone marked present can then download a **participation certificate** from
+their own page. It is the same card as the finisher certificate but has no time
+and no placing, because a workshop has neither.
+
+One thing admin will refuse: **deleting a workshop somebody attended.**
+Unpublish it instead. Deleting it would take away the evidence behind a
+certificate you already gave out. An empty one deletes normally.
+
+### Would you pay for this?
+
+There is one question worth asking while everything is still free: what would
+you pay for, and what feels fair. That is the only time the answer tells you
+anything — ask afterwards and you are asking people to justify a decision you
+already took.
+
+The place to put the answers exists (`POST /api/interest`, the
+`interest_answers` table, no account needed). **Nothing asks the question yet**
+and there is no screen that reads the answers back — that is the next small
+piece of work, not something already running. Nothing is charged anywhere in
+the app.
+
+---
 
 ## Race photographs
 
@@ -492,7 +550,7 @@ python tools/rfid_bridge.py --event siliguri10k --checkpoint 2 --simulate
 ```
 backend/
   main.py         FastAPI app, every endpoint, automatic schema migrations
-  models.py       10 tables. `reads` is append-only
+  models.py       13 tables. `reads` is append-only
   schemas.py      Pydantic request/response models
   timing.py       Splits and rankings, computed on demand and never stored
   achievements.py Points and badges, derived from reads on every request
@@ -511,9 +569,11 @@ static/
   checkpoint.html   Volunteer capture screen
   results.html      Public leaderboard
   certificate.html  Finisher certificate
+  attended.html     Participation certificate for a workshop
   guide.html        Walk-through for a new official
   js/store.js       Offline queue (IndexedDB) and clock sync
   js/theme.js       The Himalayan wallpapers
+  js/cardexport.js  Shared PNG export for both certificates
   vendor/           Vendored QR library, so race day needs no CDN
 tools/
   rfid_bridge.py    The upgrade path to RFID mats
@@ -528,7 +588,8 @@ seed.py             40-runner demo race
 ## API
 
 Interactive docs at `/docs` while the server runs. 🔒 needs a signed-in
-operator; ⭐ needs a **super admin**. Everything unmarked is public. The ones
+operator; 👤 any **signed-in account**; ⭐ a **super admin**.
+Everything unmarked is public. The ones
 you will actually touch:
 
 | | Method | Path | Notes |
@@ -540,8 +601,8 @@ you will actually touch:
 | 🔒 | `GET` | `/api/analytics` | Visitor numbers |
 | | `POST` | `/api/auth/signup` | Open a runner account |
 | | `GET` | `/api/events/upcoming` | Published races, soonest first |
-| 🔒 | `GET` | `/api/me/record` | Your races, points and badges |
-| 🔒 | `POST` | `/api/events/{code}/register` | Enter a race |
+| 👤 | `GET` | `/api/me/record` | Your races, points and badges |
+| 👤 | `POST` | `/api/events/{code}/register` | Enter a race |
 | | `POST` | `/api/messages` | Contact form |
 | | `GET` | `/api/events/public` | Code and name only, for the race pickers |
 | ⭐ | `POST` | `/api/events` | Create an event |
@@ -553,6 +614,10 @@ you will actually touch:
 | 🔒 | `DELETE` | `/api/participants/{id}` | Remove a runner; their reads are kept |
 | 🔒 | `POST` | `/api/events/{code}/artwork` | Multipart image upload |
 | | `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent — **public on purpose** |
+| 🔒 | `POST` | `/api/workshops` | Create a workshop |
+| 👤 | `POST` | `/api/workshops/{slug}/register` | Take a place, or join the waitlist |
+| 🔒 | `GET` | `/api/workshops/{slug}/registrations` | The register, for the day itself |
+| 🔒 | `PATCH` | `/api/workshop-registrations/{reg_id}` | Mark who turned up |
 | 🔒 | `GET` | `/api/events/{code}/reads` | Raw audit log |
 | 🔒 | `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
 | | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
@@ -691,8 +756,10 @@ Also handled:
 
 ## Not built yet
 
-**SMS notifications** and **year-grouping** of events. **Payments are out of
-scope** by decision, not by omission. None of them affect the data model, so all are
+**SMS notifications** and **year-grouping** of events. **Payments are not built**
+and no money moves through the app. **Virtual races** are designed but not
+started. The question about what people would pay for has an endpoint and a
+table but nothing that asks it. None of these affect the data model, so all are
 additive.
 
 Two gaps worth naming rather than leaving to be discovered:

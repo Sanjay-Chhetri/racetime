@@ -440,3 +440,103 @@ class Message(Base):
     handled = Column(Boolean, nullable=False, default=False)
 
     user = relationship("User")
+
+
+# --------------------------------------------------------------------------
+# Workshops
+#
+# The community half of RaceTime. A workshop is not a race: nobody is timed,
+# nobody is ranked, and the only thing recorded is whether somebody turned up.
+# It shares the account system and the card generator and nothing else, which
+# is why it is its own pair of tables rather than an Event with a flag.
+# --------------------------------------------------------------------------
+
+class Workshop(Base):
+    __tablename__ = "workshops"
+
+    id = Column(Integer, primary_key=True)
+    slug = Column(String(60), unique=True, nullable=False, index=True)
+    title = Column(String(160), nullable=False)
+    description = Column(String(3000), nullable=True)
+    starts_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    duration_minutes = Column(Integer, nullable=True)
+
+    # in_person | online. Which of venue and meeting_link matters follows from
+    # this, and the form shows only the one that applies.
+    mode = Column(String(12), nullable=False, default="in_person")
+    venue = Column(String(200), nullable=True)
+    meeting_link = Column(String(400), nullable=True)
+
+    host_name = Column(String(120), nullable=True)
+    # Null means no limit. Zero would mean "nobody may come", which is a
+    # different thing and not one anybody wants to say by leaving a box empty.
+    capacity = Column(Integer, nullable=True)
+
+    # Paise, not rupees: money in a float is how a hundred registrations end up
+    # ninety-nine paise short. Zero until payments exist, which is Phase 2.
+    price_paise = Column(Integer, nullable=False, default=0)
+
+    cover_url = Column(String(255), nullable=True)
+    cover_blob = Column(LargeBinary, nullable=True)
+    cover_type = Column(String(32), nullable=True)
+
+    is_published = Column(Boolean, nullable=False, default=False)
+    registration_open = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    registrations = relationship(
+        "WorkshopRegistration", back_populates="workshop",
+        cascade="all, delete-orphan")
+
+
+class WorkshopRegistration(Base):
+    """One person, one workshop.
+
+    `status` carries the whole story: registered, waitlisted when the room is
+    full, cancelled if they drop out, attended once they turned up. Attendance
+    is a status rather than a separate table because a person cannot attend a
+    workshop they never registered for -- the register is the list.
+    """
+    __tablename__ = "workshop_registrations"
+
+    id = Column(Integer, primary_key=True)
+    workshop_id = Column(Integer, ForeignKey("workshops.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    # registered | waitlisted | cancelled | attended | no_show
+    status = Column(String(12), nullable=False, default="registered")
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    attended_at = Column(DateTime(timezone=True), nullable=True)
+    note = Column(String(400), nullable=True)
+
+    workshop = relationship("Workshop", back_populates="registrations")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("workshop_id", "user_id", name="uq_workshop_person"),
+    )
+
+
+class InterestAnswer(Base):
+    """What people said they would pay for, before anything is charged.
+
+    Asked once at sign-up and again after a workshop, both optional. The point
+    is to find out whether there is anything to sell before building a way to
+    sell it.
+    """
+    __tablename__ = "interest_answers"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    # Where it was asked: signup | workshop
+    context = Column(String(20), nullable=False, default="signup")
+    workshop_id = Column(Integer, ForeignKey("workshops.id", ondelete="SET NULL"),
+                         nullable=True)
+    # A short list of things they would pay for, comma separated.
+    would_pay_for = Column(String(200), nullable=True)
+    # Rupees, whole. What somebody types when asked what feels fair.
+    fair_price = Column(Integer, nullable=True)
+    comment = Column(String(400), nullable=True)

@@ -6,7 +6,7 @@
    "Race admin" above both. The organiser tools are behind a sign-in now -- they
    are a handful of people, once per event, and they know where they are going. */
 
-import { esc, ok, withBusy } from '/js/ui.js';
+import { esc, ok, fail, withBusy } from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -219,6 +219,89 @@ $('enSend').onclick = async e => {
   }
 };
 
+/* ---------- workshops ---------- */
+
+const WS_LABEL = {
+  registered: ['go', 'You have a place'],
+  waitlisted: ['wait', 'On the waitlist'],
+  attended: ['go', 'You attended'],
+  cancelled: ['', 'You cancelled'],
+  no_show: ['', 'Marked absent'],
+};
+
+let workshops = [];
+
+async function loadWorkshops() {
+  try {
+    workshops = await fetch('/api/workshops').then(r => r.json());
+  } catch {
+    return;
+  }
+  if (!Array.isArray(workshops) || !workshops.length) return;
+
+  $('workshopNote').textContent =
+    `${workshops.length} ${workshops.length === 1 ? 'session' : 'sessions'}`;
+
+  $('workshopCards').innerHTML = workshops.map(w => {
+    const [tone, label] = WS_LABEL[w.my_status] || [];
+    const full = w.places_left === 0;
+    const action = label
+      ? `<span class="tag ${tone}">${esc(label)}</span>`
+      : w.registration_open
+        ? `<button class="primary" data-ws="${esc(w.slug)}">${
+            full ? 'Join the waitlist' : 'Take a place'}</button>`
+        : '<span class="tag">Registration closed</span>';
+    const places = w.capacity
+      ? (full
+          ? `Full \u2014 ${w.waitlisted} waiting`
+          : `${w.places_left} of ${w.capacity} places left`)
+      : `${w.places_taken} signed up`;
+    return `<article class="eventcard${w.cover_url ? ' haspic' : ''}">
+      ${w.cover_url ? `<div class="evpic">
+          <img src="${esc(w.cover_url)}" alt="" loading="lazy"></div>` : ''}
+      <div class="evwhen">${esc(fmtDate(w.starts_at))}</div>
+      <h3>${esc(w.title)}</h3>
+      <p class="evwhere">${esc(w.mode === 'online'
+        ? 'Online' + (w.duration_minutes ? ` \u00b7 ${w.duration_minutes} min` : '')
+        : (w.venue || 'In person'))}</p>
+      ${w.description ? `<p class="note">${esc(w.description)}</p>` : ''}
+      ${w.host_name ? `<p class="note tight">With ${esc(w.host_name)}</p>` : ''}
+      ${w.meeting_link ? `<p class="note tight">
+        <a href="${esc(w.meeting_link)}" target="_blank" rel="noopener noreferrer">
+          Joining link</a></p>` : ''}
+      <div class="evacts">${action}</div>
+      <p class="note tight">${esc(places)} \u00b7 ${
+        w.price_paise ? '\u20b9' + (w.price_paise / 100).toFixed(0) : 'Free'}</p>
+    </article>`;
+  }).join('');
+
+  $('workshops').hidden = false;
+
+  $('workshopCards').querySelectorAll('[data-ws]').forEach(btn => {
+    btn.onclick = () => withBusy(btn, async () => {
+      if (!me) { location.href = '/signup.html'; return; }
+      try {
+        const res = await fetch(
+          `/api/workshops/${encodeURIComponent(btn.dataset.ws)}/register`,
+          { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          fail(typeof body.detail === 'string'
+            ? body.detail : 'Could not take a place.');
+          return;
+        }
+        ok(body.status === 'waitlisted'
+          ? 'The session is full, so you are on the waitlist. You will move up '
+            + 'if somebody drops out.'
+          : 'You have a place. It is listed under My running.');
+        loadWorkshops();
+      } catch {
+        fail('Could not reach the server.');
+      }
+    });
+  });
+}
+
 /* ---------- contact ---------- */
 
 $('contactForm').onsubmit = e => {
@@ -316,4 +399,4 @@ loadRaces().then(() => {
 });
 // Identity first: it decides whether "Enter this race" opens a form or leads
 // to sign-up, so the race list waits on it.
-initAuth().then(loadUpcoming);
+initAuth().then(() => { loadUpcoming(); loadWorkshops(); });

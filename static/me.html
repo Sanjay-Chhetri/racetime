@@ -38,6 +38,9 @@
   <button class="tab" role="tab" data-tab="entries" id="tab-entries"
           aria-controls="panel-entries" aria-selected="false">My entries
     <span class="tab-n" id="nEntries"></span></button>
+  <button class="tab" role="tab" data-tab="workshops" id="tab-workshops"
+          aria-controls="panel-workshops" aria-selected="false">Workshops
+    <span class="tab-n" id="nWorkshops"></span></button>
   <button class="tab" role="tab" data-tab="profile" id="tab-profile"
           aria-controls="panel-profile" aria-selected="false">Profile</button>
 </nav>
@@ -62,6 +65,14 @@
   organiser confirms it and gives you a bib.</p>
   <div id="entryList"></div>
   <p style="margin-top:1rem"><a href="/#upcoming">See upcoming races &rarr;</a></p>
+</section>
+
+<section class="panel tabpanel" role="tabpanel" hidden id="panel-workshops"
+         data-tab="workshops" aria-labelledby="tab-workshops">
+  <p class="note">Sessions you have taken a place at. Once an organiser marks
+  you present, your participation certificate appears here.</p>
+  <div id="wsList"></div>
+  <p style="margin-top:1rem"><a href="/#workshops">See what is coming up &rarr;</a></p>
 </section>
 
 <section class="panel tabpanel" role="tabpanel" hidden id="panel-profile"

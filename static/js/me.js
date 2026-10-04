@@ -60,7 +60,7 @@ const when = iso => iso
 
 /* ---------- tabs ---------- */
 
-const TABS = ['runs', 'badges', 'entries', 'profile'];
+const TABS = ['runs', 'badges', 'entries', 'workshops', 'profile'];
 let tab = 'runs';
 
 function showTab(name) {
@@ -77,6 +77,7 @@ function showTab(name) {
   });
   location.hash = name;
   if (name === 'entries') loadEntries();
+  if (name === 'workshops') loadWorkshops();
 }
 
 document.querySelectorAll('.tab').forEach(b => {
@@ -233,6 +234,67 @@ async function loadEntries() {
         ok('Entry withdrawn.');
         loadEntries();
         loadRecord();
+      } catch (e) { fail(e.message); }
+    });
+  });
+}
+
+/* ---------- workshops ---------- */
+
+const WS_TONE = {
+  registered: ['go', 'You have a place'],
+  waitlisted: ['wait', 'On the waitlist'],
+  attended: ['go', 'You attended'],
+  cancelled: ['', 'Cancelled'],
+  no_show: ['stop', 'Marked absent'],
+};
+
+async function loadWorkshops() {
+  let rows;
+  try {
+    rows = await api('/me/workshops');
+  } catch (e) {
+    $('wsList').innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    return;
+  }
+  const live = rows.filter(r => ['registered', 'waitlisted'].includes(r.status));
+  $('nWorkshops').textContent = live.length || '';
+
+  if (!rows.length) {
+    $('wsList').innerHTML =
+      '<div class="empty"><div class="t">No workshops yet</div>'
+      + '<div class="h">They are free. Take a place from the home page.</div></div>';
+    return;
+  }
+
+  $('wsList').innerHTML = rows.map(r => {
+    const [tone, label] = WS_TONE[r.status] || ['', r.status];
+    return `<article class="runcard">
+      <div class="runhead">
+        <div>
+          <h3>${esc(r.workshop_title)}</h3>
+          <p class="note">${esc(r.starts_at
+            ? new Date(r.starts_at).toLocaleString() : 'Date to be announced')}</p>
+        </div>
+        <span class="tag ${tone}">${esc(label)}</span>
+      </div>
+      <div class="runacts">
+        ${r.status === 'attended'
+          ? `<a href="/attended.html#${encodeURIComponent(r.workshop_slug)}">
+               Participation certificate</a>` : ''}
+        ${['registered', 'waitlisted'].includes(r.status)
+          ? `<button class="quiet danger" data-drop="${r.id}">Give up my place</button>` : ''}
+      </div>
+    </article>`;
+  }).join('');
+
+  $('wsList').querySelectorAll('[data-drop]').forEach(b => {
+    b.onclick = () => withBusy(b, async () => {
+      try {
+        await api(`/workshop-registrations/${b.dataset.drop}/cancel`,
+                  { method: 'POST' });
+        ok('Place given up. Somebody on the waitlist takes it.');
+        loadWorkshops();
       } catch (e) { fail(e.message); }
     });
   });

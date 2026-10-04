@@ -138,7 +138,46 @@ Something sent through the contact form. Written here **before** any attempt to
 email it, because mail needs credentials that may not be set and a form that
 loses what people wrote is worse than no form.
 
-### 3.10 Read — append-only
+### 3.10 Workshop
+
+A coaching session rather than a race: a title, when it starts, how long it
+runs, whether it is `in_person` or `online`, who is taking it, and how many
+places there are.
+
+| Field | Type | Notes |
+|---|---|---|
+| `slug` | string(60), unique | Made from the title, so the address is readable |
+| `starts_at`, `duration_minutes` | | |
+| `mode` | `in_person` \| `online` | Decides whether `venue` or `meeting_link` applies |
+| `venue` | string(200), nullable | Where to turn up |
+| `meeting_link` | string(400), nullable | **Never sent to the public.** See FR-21.4 |
+| `capacity` | int, nullable | **Null means no limit.** Zero would mean nobody may come, which is a different statement and not one anybody makes by leaving a box empty |
+| `price_paise` | int | **Paise, not rupees, and not a float.** Zero until payments exist. A hundred registrations priced in floating point end up short |
+| `cover_blob`, `cover_type` | | Held in the database, like race artwork — nothing is written to disk at runtime |
+| `is_published`, `registration_open` | bool | Both default off and on respectively |
+
+### 3.11 WorkshopRegistration
+
+One person, one workshop, with a unique constraint on the pair so a double tap
+cannot take two places.
+
+`status` carries the whole story: `registered`, `waitlisted` when the room is
+full, `cancelled` if they drop out, `attended` once an organiser marks them
+present, `no_show` if they did not. Attendance is a **status, not a second
+table**, because nobody can attend a session they never registered for — the
+register *is* the list.
+
+### 3.12 InterestAnswer
+
+What somebody said they would pay for, asked at sign-up and again after a
+workshop, optional both times, and answerable once per context. `fair_price` is
+whole rupees — what a person types when asked what feels reasonable.
+
+Asked **before** anything is for sale, which is the only point at which the
+answer means anything. Afterwards you are not asking what somebody wants; you
+are asking them to justify a decision already taken.
+
+### 3.13 Read — append-only
 
 One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
@@ -300,7 +339,7 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   falls back to copying to the clipboard.
 - **FR-7.9** A **status header** states whether the race is `Live`, `Final` or
   `Not started`, with the date. It is `Final` only once **every entrant has
-  reached a terminal state** (finished or DNF) -- not merely when nobody is on
+  reached a terminal state** (finished or DNF) — not merely when nobody is on
   course, since a runner with no sightings at all counts as `not_started`, and a
   race whose gun had fired but whose checkpoints had scanned nobody was
   reporting itself finished. The page is reached
@@ -351,7 +390,7 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
 - **FR-7a.1** The event's sections are **tabs**: Runners, Races, Checkpoints,
   Artwork, Reads. One panel renders at a time. As one page it ran to 16,000px,
-  with Runners -- the screen used on the morning -- below three sections that are
+  with Runners — the screen used on the morning — below three sections that are
   set once and never revisited.
 - **FR-7a.2** The open section is part of the address (`#siliguri10k/runners`),
   so a reload returns to it, back and forward move between sections, and a link
@@ -366,7 +405,7 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
   looks wrong.
 - **FR-7a.6** Opening a race **hides the chooser**; "switch race" in the event
   bar brings it back.
-- **FR-7a.7** Destructive actions in a table row are **quiet** -- text weight,
+- **FR-7a.7** Destructive actions in a table row are **quiet** — text weight,
   no fill, colour only on hover. A full outlined red button per row made Remove
   the most prominent thing on a roster of forty runners.
 
@@ -776,6 +815,79 @@ powers of the race director.
   failing silently; a share that fails for any other reason falls through to a
   download.
 
+### FR-21 — Workshops
+
+A race is a one-day event with a start list. A workshop is a session with a
+room, a register and a limit, and the thing that turns a one-off runner into
+somebody who comes back.
+
+- **FR-21.1** An operator creates a workshop with a title, a start, a length,
+  a mode (`in_person` or `online`), a host, a capacity and a cover image. Only
+  the title is required; a session can be put up and filled in later.
+- **FR-21.2** A workshop is **unpublished when created**. Unpublished means
+  absent from the public list and `404` on direct access — not greyed out.
+  An operator sees it in their own list, because otherwise setting one up means
+  guessing at its address.
+- **FR-21.3** The address is a slug made from the title
+  (`hill-running-basics`), de-duplicated with a numeric suffix.
+- **FR-21.4** **The joining link for an online session goes only to people who
+  hold a place, and to operators.** Not to the public list, not to the public
+  detail response, and not to the waitlist. Publishing it would make the
+  capacity decorative.
+- **FR-21.5** A signed-in member takes a place. When the room is full they are
+  **waitlisted** rather than refused, and told which they got.
+- **FR-21.6** Registering twice is `409`. The unique constraint on
+  (workshop, person) is the guarantee; the check is the courtesy.
+- **FR-21.7** **A cancellation promotes the waitlist in the order people joined
+  it**, which is the only order anybody would accept. So does raising the
+  capacity. So does removing the capacity altogether, which admits everybody
+  waiting.
+- **FR-21.8** The public sees places taken, places left and how many are
+  waiting. Knowing a session is full before registering is worth more than the
+  surprise.
+- **FR-21.9** The register, with names and email addresses, is for operators
+  only — `401` to the public, `403` to a runner. An organiser needs to be able
+  to reach the room.
+- **FR-21.10** An operator marks attendance, and it is **timestamped**, not
+  just flagged. A runner cannot mark their own: `403`.
+- **FR-21.11** **A workshop somebody attended cannot be deleted** — `409`, with
+  the instruction to unpublish it instead. Deleting it would delete the
+  evidence behind a certificate already issued. An empty one deletes cleanly.
+- **FR-21.12** Capacity, publication and registration can all be changed after
+  the fact, and the counts and the waitlist follow.
+
+### FR-22 — Participation certificates (`/attended.html#<slug>`)
+
+- **FR-22.1** Somebody marked present at a workshop can download a
+  participation certificate, built on the same card and the same export path as
+  the finisher card: 1080 × 1350, **Share and Download side by side**, after
+  `document.fonts.ready`.
+- **FR-22.2** It is **deliberately not the same shape of thing as a race
+  card**. There is no time and no placing, because a workshop has neither, and
+  a card with blanks where those would go reads as a race somebody failed.
+- **FR-22.3** **It exists only once an organiser has marked the person
+  present.** Not a refusal to be worked around — the certificate's whole claim
+  is that somebody was there, so the person who can say that is the person who
+  ran the session.
+- **FR-22.4** Signed out, the page sends them to sign in and returns them to
+  the certificate afterwards, rather than showing nothing.
+
+### FR-23 — What people would pay for
+
+- **FR-23.1** One optional question: what would you pay for, what feels fair,
+  anything else. Recorded against the account when there is one, and
+  **answerable without one**, because the people worth asking include the ones
+  who have not signed up.
+- **FR-23.2** Asked while everything is free. That is the only point at which
+  the answer is information rather than a negotiation — afterwards you are
+  asking somebody to justify a decision already taken.
+- **FR-23.3** **Partly built.** The endpoint and the table exist and are
+  tested. No screen asks the question and no screen reads the answers back, so
+  nothing is collected in practice yet. Recorded here as a foundation, not as a
+  working feature.
+- **FR-23.4** It will not be a condition of anything. Skipping it must block no
+  screen.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -800,8 +912,9 @@ powers of the race director.
 
 ## 6. API reference
 
-🔒 marks a route needing a **signed-in operator**; ⭐ marks one needing a
-**super admin**. Anything unmarked is public. A route that needs a session
+👤 marks a route needing any **signed-in account**; 🔒 one needing an
+**operator** (admin or super admin); ⭐ one needing a **super admin**. Anything
+unmarked is public. A route that needs a session
 answers `401` without one, and `403` when the account is signed in but lacks
 the role. Interactive docs at `/docs` while the server runs.
 
@@ -817,15 +930,15 @@ the role. Interactive docs at `/docs` while the server runs.
 |---|---|---|---|
 | | `POST` | `/api/auth/login` | Username and password for a session cookie |
 | | `POST` | `/api/auth/logout` | Delete the session row |
-| 🔒 | `GET` | `/api/auth/me` | The signed-in account and its permissions |
-| 🔒 | `POST` | `/api/auth/password` | Change your own; signs out other browsers |
+| 👤 | `GET` | `/api/auth/me` | The signed-in account and its permissions |
+| 👤 | `POST` | `/api/auth/password` | Change your own; signs out other browsers |
 | | `POST` | `/api/auth/signup` | Open a runner account; the role is fixed server-side |
-| 🔒 | `GET` | `/api/me/profile` | Your own account |
-| 🔒 | `PATCH` | `/api/me/profile` | Your details, bio, visibility and Strava link |
+| 👤 | `GET` | `/api/me/profile` | Your own account |
+| 👤 | `PATCH` | `/api/me/profile` | Your details, bio, visibility and Strava link |
 | | `GET` | `/api/profiles/{slug}` | A runner's public profile; 404 when it may not be seen |
 | | `GET` | `/api/profiles/{slug}/avatar` | Their photo, subject to the same rule |
-| 🔒 | `POST` | `/api/me/avatar` | Upload your profile photo |
-| 🔒 | `DELETE` | `/api/me/avatar` | Remove it |
+| 👤 | `POST` | `/api/me/avatar` | Upload your profile photo |
+| 👤 | `DELETE` | `/api/me/avatar` | Remove it |
 | ⭐ | `GET` | `/api/users` | List accounts |
 | ⭐ | `POST` | `/api/users` | Create an account |
 | ⭐ | `PATCH` | `/api/users/{user_id}` | Role, active flag, password reset |
@@ -882,11 +995,29 @@ the role. Interactive docs at `/docs` while the server runs.
 
 | | Method | Path | Purpose |
 |---|---|---|---|
-| 🔒 | `POST` | `/api/events/{code}/register` | Enter a race |
-| 🔒 | `GET` | `/api/me/registrations` | Your own entries |
-| 🔒 | `POST` | `/api/registrations/{reg_id}/withdraw` | Withdraw; an organiser may withdraw anyone's |
+| 👤 | `POST` | `/api/events/{code}/register` | Enter a race |
+| 👤 | `GET` | `/api/me/registrations` | Your own entries |
+| 👤 | `POST` | `/api/registrations/{reg_id}/withdraw` | Withdraw; an organiser may withdraw anyone's |
 | 🔒 | `GET` | `/api/events/{code}/registrations` | Every entry for a race |
 | 🔒 | `PATCH` | `/api/registrations/{reg_id}` | Confirm (needs a bib), reject or reopen |
+
+### Workshops
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| | `GET` | `/api/workshops` | Published workshops, soonest first; operators also see unpublished ones |
+| | `GET` | `/api/workshops/{slug}` | One workshop; `404` if unpublished and you are not an operator |
+| | `GET` | `/api/workshops/{slug}/cover` | The cover image |
+| 🔒 | `POST` | `/api/workshops` | Create one; unpublished until you say otherwise |
+| 🔒 | `PATCH` | `/api/workshops/{slug}` | Edit; raising the capacity promotes the waitlist |
+| 🔒 | `DELETE` | `/api/workshops/{slug}` | `409` if anybody attended — unpublish instead |
+| 🔒 | `POST` | `/api/workshops/{slug}/cover` | Multipart image upload |
+| 👤 | `POST` | `/api/workshops/{slug}/register` | Take a place, or join the waitlist |
+| 👤 | `POST` | `/api/workshop-registrations/{reg_id}/cancel` | Drop out; promotes the next person waiting |
+| 👤 | `GET` | `/api/me/workshops` | Your own places, waitlist spots and attendance |
+| 🔒 | `GET` | `/api/workshops/{slug}/registrations` | The register, with contact details — operators only |
+| 🔒 | `PATCH` | `/api/workshop-registrations/{reg_id}` | Mark present or absent; timestamped |
+| | `POST` | `/api/interest` | What somebody would pay for; no account needed |
 
 ### Messages
 
@@ -911,19 +1042,20 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `GET` | `/api/events/{code}/reads` | Raw audit log |
 | 🔒 | `POST` | `/api/reads/{read_id}/void` | Exclude from timing, keep the row |
 | | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
-| 🔒 | `GET` | `/api/me/record` | Your races, points and badges, derived on request |
+| 👤 | `GET` | `/api/me/record` | Your races, points and badges, derived on request |
 
 ## 7. Screens
 
-| Screen | Path | Audience | Needs the token |
+| Screen | Path | Audience | Needs an account |
 |---|---|---|---|
 | Home | `/` | Everyone | no |
 | Starter guide | `/guide.html` | Anyone new to the app | no |
-| Race admin | `/admin.html#<code>` | Organiser | **yes**, to change anything |
+| Race admin | `/admin.html#<code>` | Organiser | **yes** — operator only, and not served to a runner at all |
 | Checkpoint capture | `/checkpoint.html` | Volunteer | no |
 | Live results | `/results.html#<code>` | Public | no |
 | Finisher card | `/certificate.html#<code>/<bib>` | Runner | no |
 | My running | `/me.html` | Runner | yes |
+| Participation certificate | `/attended.html#<slug>` | Somebody marked present | yes |
 | Runner profile | `/r/<slug>` (serves `/profile.html`) | Public, members or nobody | no |
 | How your details are used | `/privacy.html` | Anyone | no |
 | Create an account | `/signup.html` | Runner | no |
@@ -1014,11 +1146,15 @@ What no automated check can cover is **paper**: ink coverage, bleed on cheap
 stock, and whether a QR scans once printed. Print one bib and one card on the
 actual printer before committing to a run.
 
-### 9.7 One shared admin token, not accounts
-There are no named logins, no roles and no audit of who changed what. Everyone
-who administers a race shares one secret, and rotating it signs everybody out.
-That is proportionate for a one- or two-person timing crew and would not be for
-a larger organisation.
+### 9.7 No audit of who changed what
+Named accounts and three ordered roles replaced the shared token (FR-10). What
+is missing is the next layer: an organiser confirms an entry or changes a bib
+and the row does not record which account did it. Reads carry a full audit
+trail; nothing else does.
+
+Roles are also global rather than per-event, so a second organiser would hold
+admin over every race rather than their own. Proportionate for one timing crew
+in Kalimpong; not for two.
 
 ---
 
@@ -1026,12 +1162,15 @@ a larger organisation.
 
 | Area | Status |
 |---|---|
-| User accounts / per-user roles | Not built. There is one shared admin token, not named logins |
-| Online registration | Not built. Start lists are imported by the organiser |
-| Payments | Not built |
+| Payments | Not built. No money moves through the app. Workshop prices are held in paise and are all zero |
+| Virtual races | Not built. Designed, not started |
+| Strava / GPS import | Not built. Evidence would be a photograph or a screenshot |
+| The interest question | Half built — endpoint and table exist, nothing asks it |
+| Per-event roles | Not built. A role applies to every race, see [9.7](#97-no-audit-of-who-changed-what) |
+| Audit of admin actions | Not built for anything but reads |
 | Year grouping of events | Not built. Only useful across multiple seasons |
-| Race photography | Not built |
-| SMS / email notification | Not built |
+| SMS / email notification | Not built. The contact form sends one way |
+| Checkpoint device credentials | Not built. Ingest is open on purpose, see [8.1](#81-why-read-ingest-is-open) |
 | Age-group awards | Partially covered by category ranking |
 
 None of these require a data-model change; all are additive.
@@ -1048,9 +1187,10 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **180 assertions**, all passing, and each one is repeatable: they reset
-the accounts and rows they touch, because a suite that only passes the first
-time is a suite that will lie to you on the second.
+carry **325 assertions** — 230 against the API, 95 driving a real
+browser — all passing, and each one is repeatable: they reset the accounts and
+rows they touch, because a suite that only passes the first time is a suite that
+will lie to you on the second.
 
 | Area | Method | Result |
 |---|---|---|
@@ -1076,6 +1216,12 @@ time is a suite that will lie to you on the second.
 | **Uploads** | SVG content named `.png`, declared `image/png` | rejected `422` by magic-byte sniff |
 | **Escaping** | `<img src=x onerror=…>` as a runner name | rendered inert |
 | **Migrations** | booted against a database with the **old** schema — columns and index dropped, a legacy row left behind | columns restored, booleans backfilled, seeding not repeated; reproduces the outage below without the fix |
+| **Workshops** | 34 checks over the API | unpublished is `404` to the public and listed to an operator; the joining link reaches a registered member and not a waitlisted one; the third person into a room of two is waitlisted |
+| | the waitlist | a cancellation and a raised capacity each promote the next person waiting, in the order they joined |
+| | the register | `401` to the public, `403` to a runner marking their own attendance; attendance timestamped |
+| | deletion | a workshop somebody attended refuses `409` and says to unpublish instead; an empty one deletes |
+| **Workshops in the browser** | Chromium, 23 checks | the listing, the register, the waitlist notice, and the participation certificate exported at 1080 × 1350 |
+| | a certificate before attendance is marked | not rendered; the page says it appears once an organiser marks them present |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through

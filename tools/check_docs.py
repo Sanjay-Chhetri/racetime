@@ -97,6 +97,11 @@ for phrase, why in [
     ("Five tables", "the table count has changed"),
     ("Authentication, online registration", "both are built now"),
     ("ADMIN_TOKEN is not set", "there is no shared token any more"),
+    ("One shared admin token", "accounts and roles replaced it"),
+    ("not named logins", "the logins are named now"),
+    ("180 assertions", "the suites have grown"),
+    ("Race photography | Not built", "races carry a photograph now"),
+    ("10 tables", "the table count has changed"),
 ]:
     if phrase in DOCS:
         stale.append(f"{phrase!r} ({why})")

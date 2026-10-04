@@ -1069,6 +1069,330 @@ def mail_status():
     return mail.status()
 
 
+# --------------------------------------------------------------------------
+# Workshops
+# --------------------------------------------------------------------------
+
+LIVE_WS = ("registered", "attended")          # holds a place
+ANY_WS = ("registered", "attended", "waitlisted")
+
+
+def _ws_counts(db: Session, workshop: models.Workshop) -> tuple[int, int]:
+    taken = (db.query(models.WorkshopRegistration)
+             .filter(models.WorkshopRegistration.workshop_id == workshop.id,
+                     models.WorkshopRegistration.status.in_(LIVE_WS))
+             .count())
+    waiting = (db.query(models.WorkshopRegistration)
+               .filter(models.WorkshopRegistration.workshop_id == workshop.id,
+                       models.WorkshopRegistration.status == "waitlisted")
+               .count())
+    return taken, waiting
+
+
+def _ws_out(db: Session, w: models.Workshop,
+            viewer: Optional[models.User]) -> schemas.WorkshopOut:
+    taken, waiting = _ws_counts(db, w)
+    mine = None
+    if viewer is not None:
+        reg = (db.query(models.WorkshopRegistration)
+               .filter(models.WorkshopRegistration.workshop_id == w.id,
+                       models.WorkshopRegistration.user_id == viewer.id)
+               .first())
+        mine = reg.status if reg else None
+    # The joining link goes only to somebody who actually has a place, and to
+    # the organisers. Publishing it on the listing would make the capacity
+    # meaningless.
+    link = None
+    if w.mode == "online" and viewer is not None and (
+            viewer.is_operator or mine in LIVE_WS):
+        link = w.meeting_link
+    return schemas.WorkshopOut(
+        id=w.id, slug=w.slug, title=w.title, description=w.description,
+        starts_at=w.starts_at, duration_minutes=w.duration_minutes,
+        mode=w.mode, venue=w.venue, host_name=w.host_name,
+        capacity=w.capacity, price_paise=w.price_paise, cover_url=w.cover_url,
+        is_published=bool(w.is_published),
+        registration_open=bool(w.registration_open),
+        places_taken=taken,
+        places_left=(max(0, w.capacity - taken) if w.capacity else None),
+        waitlisted=waiting, my_status=mine, meeting_link=link,
+    )
+
+
+def _get_workshop(db: Session, slug: str) -> models.Workshop:
+    w = db.query(models.Workshop).filter(models.Workshop.slug == slug).first()
+    if w is None:
+        raise HTTPException(404, f"No workshop called '{slug}'.")
+    return w
+
+
+def _promote_waitlist(db: Session, workshop: models.Workshop) -> int:
+    """Move people off the waitlist into the places that just opened.
+
+    In the order they joined it, which is the only order anybody would accept.
+    """
+    if not workshop.capacity:
+        moved = (db.query(models.WorkshopRegistration)
+                 .filter(models.WorkshopRegistration.workshop_id == workshop.id,
+                         models.WorkshopRegistration.status == "waitlisted")
+                 .all())
+        for r in moved:
+            r.status = "registered"
+        return len(moved)
+
+    taken, _ = _ws_counts(db, workshop)
+    free = workshop.capacity - taken
+    if free <= 0:
+        return 0
+    waiting = (db.query(models.WorkshopRegistration)
+               .filter(models.WorkshopRegistration.workshop_id == workshop.id,
+                       models.WorkshopRegistration.status == "waitlisted")
+               .order_by(models.WorkshopRegistration.created_at.asc())
+               .limit(free).all())
+    for r in waiting:
+        r.status = "registered"
+    return len(waiting)
+
+
+@app.get("/api/workshops", response_model=List[schemas.WorkshopOut])
+def list_workshops(request: Request, db: Session = Depends(get_db)):
+    """Published workshops, soonest first. Public.
+
+    An operator sees the unpublished ones too, because otherwise setting one up
+    means guessing at its address.
+    """
+    viewer = auth.optional_user(request, db)
+    q = db.query(models.Workshop)
+    if not (viewer and viewer.is_operator):
+        q = q.filter(models.Workshop.is_published.is_(True))
+    rows = q.order_by(models.Workshop.starts_at.is_(None),
+                      models.Workshop.starts_at.asc()).all()
+    return [_ws_out(db, w, viewer) for w in rows]
+
+
+@app.get("/api/workshops/{slug}", response_model=schemas.WorkshopOut)
+def get_workshop(slug: str, request: Request, db: Session = Depends(get_db)):
+    viewer = auth.optional_user(request, db)
+    w = _get_workshop(db, slug)
+    if not w.is_published and not (viewer and viewer.is_operator):
+        raise HTTPException(404, f"No workshop called '{slug}'.")
+    return _ws_out(db, w, viewer)
+
+
+@app.post("/api/workshops", response_model=schemas.WorkshopOut, status_code=201,
+          dependencies=ADMIN)
+def create_workshop(payload: schemas.WorkshopIn, request: Request,
+                    db: Session = Depends(get_db)):
+    base = re.sub(r"[^a-z0-9]+", "-", payload.title.lower()).strip("-")[:48] or "workshop"
+    slug, n = base, 2
+    while db.query(models.Workshop).filter(models.Workshop.slug == slug).first():
+        slug = f"{base}-{n}"
+        n += 1
+    w = models.Workshop(slug=slug, **payload.model_dump())
+    db.add(w)
+    db.commit()
+    db.refresh(w)
+    return _ws_out(db, w, auth.optional_user(request, db))
+
+
+@app.patch("/api/workshops/{slug}", response_model=schemas.WorkshopOut,
+           dependencies=ADMIN)
+def update_workshop(slug: str, payload: schemas.WorkshopPatch, request: Request,
+                    db: Session = Depends(get_db)):
+    w = _get_workshop(db, slug)
+    data = payload.model_dump(exclude_unset=True)
+
+    # Raising the capacity should let the people already waiting in.
+    grew = "capacity" in data and (data["capacity"] or 0) > (w.capacity or 0)
+    for field, value in data.items():
+        setattr(w, field, value)
+    if grew or data.get("capacity") is None and "capacity" in data:
+        _promote_waitlist(db, w)
+    db.commit()
+    db.refresh(w)
+    return _ws_out(db, w, auth.optional_user(request, db))
+
+
+@app.delete("/api/workshops/{slug}", status_code=204, dependencies=ADMIN)
+def delete_workshop(slug: str, db: Session = Depends(get_db)):
+    w = _get_workshop(db, slug)
+    attended = (db.query(models.WorkshopRegistration)
+                .filter(models.WorkshopRegistration.workshop_id == w.id,
+                        models.WorkshopRegistration.status == "attended")
+                .count())
+    if attended:
+        # Somebody has a certificate from this. Deleting it would take that
+        # away from them, which is not the organiser's to do by accident.
+        raise HTTPException(
+            409, f"{attended} people attended this workshop. Unpublish it "
+                 "instead of deleting it.")
+    db.delete(w)
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/workshops/{slug}/cover", response_model=schemas.WorkshopOut,
+          dependencies=ADMIN)
+async def upload_workshop_cover(slug: str, request: Request,
+                                file: UploadFile = File(...),
+                                db: Session = Depends(get_db)):
+    w = _get_workshop(db, slug)
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, "That file is empty")
+    if len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"The image must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+    w.cover_type = _sniff_image(blob)
+    w.cover_blob = blob
+    w.cover_url = f"/api/workshops/{w.slug}/cover?v={secrets.token_hex(4)}"
+    db.commit()
+    db.refresh(w)
+    return _ws_out(db, w, auth.optional_user(request, db))
+
+
+@app.get("/api/workshops/{slug}/cover")
+def get_workshop_cover(slug: str, db: Session = Depends(get_db)):
+    w = _get_workshop(db, slug)
+    if not w.cover_blob:
+        raise HTTPException(404, "This workshop has no image")
+    return Response(
+        content=w.cover_blob,
+        media_type=w.cover_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.post("/api/workshops/{slug}/register",
+          response_model=schemas.WorkshopRegistrationOut, status_code=201)
+def register_for_workshop(slug: str, user: models.User = Depends(auth.require_user),
+                          db: Session = Depends(get_db)):
+    """Take a place, or join the waitlist when the room is full."""
+    w = _get_workshop(db, slug)
+    if not w.is_published or not w.registration_open:
+        raise HTTPException(409, "Registration is not open for this workshop.")
+
+    existing = (db.query(models.WorkshopRegistration)
+                .filter(models.WorkshopRegistration.workshop_id == w.id,
+                        models.WorkshopRegistration.user_id == user.id)
+                .first())
+    if existing and existing.status in ANY_WS:
+        raise HTTPException(409, "You are already on the list for this workshop.")
+
+    taken, _ = _ws_counts(db, w)
+    status = "waitlisted" if (w.capacity and taken >= w.capacity) else "registered"
+
+    if existing:
+        existing.status = status
+        existing.created_at = utcnow()      # they rejoined; the queue is fair
+        reg = existing
+    else:
+        reg = models.WorkshopRegistration(
+            workshop_id=w.id, user_id=user.id, status=status)
+        db.add(reg)
+    db.commit()
+    db.refresh(reg)
+    return _ws_reg_out(db, reg)
+
+
+def _ws_reg_out(db: Session,
+                r: models.WorkshopRegistration) -> schemas.WorkshopRegistrationOut:
+    return schemas.WorkshopRegistrationOut(
+        id=r.id, workshop_id=r.workshop_id,
+        workshop_title=r.workshop.title if r.workshop else "",
+        workshop_slug=r.workshop.slug if r.workshop else "",
+        starts_at=r.workshop.starts_at if r.workshop else None,
+        status=r.status, created_at=r.created_at, attended_at=r.attended_at,
+        note=r.note,
+        runner=(r.user.display_name or r.user.username) if r.user else None,
+        username=r.user.username if r.user else None,
+        email=r.user.email if r.user else None,
+        phone=r.user.phone if r.user else None,
+    )
+
+
+@app.post("/api/workshop-registrations/{reg_id}/cancel",
+          response_model=schemas.WorkshopRegistrationOut)
+def cancel_workshop(reg_id: int, user: models.User = Depends(auth.require_user),
+                    db: Session = Depends(get_db)):
+    reg = db.get(models.WorkshopRegistration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such registration.")
+    if reg.user_id != user.id and not user.is_operator:
+        raise HTTPException(403, "That is not your place.")
+    reg.status = "cancelled"
+    db.commit()
+    # A place just came free, so somebody on the waitlist gets it.
+    _promote_waitlist(db, reg.workshop)
+    db.commit()
+    db.refresh(reg)
+    return _ws_reg_out(db, reg)
+
+
+@app.get("/api/me/workshops", response_model=List[schemas.WorkshopRegistrationOut])
+def my_workshops(user: models.User = Depends(auth.require_user),
+                 db: Session = Depends(get_db)):
+    rows = (db.query(models.WorkshopRegistration)
+            .filter(models.WorkshopRegistration.user_id == user.id)
+            .order_by(models.WorkshopRegistration.created_at.desc()).all())
+    return [_ws_reg_out(db, r) for r in rows]
+
+
+@app.get("/api/workshops/{slug}/registrations",
+         response_model=List[schemas.WorkshopRegistrationOut], dependencies=ADMIN)
+def workshop_registrations(slug: str, db: Session = Depends(get_db)):
+    w = _get_workshop(db, slug)
+    rows = (db.query(models.WorkshopRegistration)
+            .filter(models.WorkshopRegistration.workshop_id == w.id)
+            .order_by(models.WorkshopRegistration.created_at.asc()).all())
+    return [_ws_reg_out(db, r) for r in rows]
+
+
+@app.patch("/api/workshop-registrations/{reg_id}",
+           response_model=schemas.WorkshopRegistrationOut, dependencies=ADMIN)
+def mark_attendance(reg_id: int, payload: schemas.AttendanceIn,
+                    db: Session = Depends(get_db)):
+    reg = db.get(models.WorkshopRegistration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such registration.")
+    was_live = reg.status in LIVE_WS
+    reg.status = payload.status
+    reg.attended_at = utcnow() if payload.status == "attended" else None
+    db.commit()
+    if was_live and payload.status not in LIVE_WS:
+        _promote_waitlist(db, reg.workshop)
+        db.commit()
+    db.refresh(reg)
+    return _ws_reg_out(db, reg)
+
+
+# --------------------------------------------------------------------------
+# Would you pay for any of this?
+# --------------------------------------------------------------------------
+
+@app.post("/api/interest", status_code=201)
+def record_interest(payload: schemas.InterestIn, request: Request,
+                    db: Session = Depends(get_db)):
+    """Optional, and answerable once per context per person.
+
+    Asked before anything is for sale, which is the only time the answer means
+    anything -- afterwards you are asking people to justify a decision already
+    taken.
+    """
+    user = auth.optional_user(request, db)
+    row = models.InterestAnswer(
+        user_id=user.id if user else None,
+        context=payload.context,
+        workshop_id=payload.workshop_id,
+        would_pay_for=payload.would_pay_for,
+        fair_price=payload.fair_price,
+        comment=payload.comment,
+    )
+    db.add(row)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/admin/check")
 def admin_check(request: Request, db: Session = Depends(get_db)):
     """What the browser needs in order to decide which screens to offer.

@@ -12,6 +12,8 @@
 import QRCode from '/vendor/qrcode.esm.js';
 import html2canvas from '/vendor/html2canvas.esm.js';
 import { esc, ok, fail, withBusy } from '/js/ui.js';
+import { renderCardPng, downloadBlob, shareOrDownload, cardFileName }
+  from '/js/cardexport.js';
 
 const $ = id => document.getElementById(id);
 
@@ -385,48 +387,16 @@ $('removePhoto').onclick = () => {
   if (current) buildCard(current);
 };
 
-/* ---------- export ---------- */
+/* ---------- export ----------
 
-async function renderPng() {
-  const card = $('cardFrame').querySelector('.share-card');
-  if (!card) throw new Error('There is no card to save.');
+   The rendering, the download and the share-with-fallback live in
+   cardexport.js, shared with the workshop certificate. Two copies of "put this
+   card on somebody's phone" would drift, and the last fix to it mattered. */
 
-  // Without this the capture can start before the webfonts have loaded, and
-  // the type silently falls back to a default face.
-  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+const renderPng = () => renderCardPng(
+  $('cardFrame').querySelector('.share-card'), html2canvas, CARD_W, cardH);
 
-  // Capture at true size, then put the preview scaling back.
-  const scaled = card.style.transform;
-  card.style.transform = 'none';
-  try {
-    const canvas = await html2canvas(card, {
-      width: CARD_W, height: cardH,
-      windowWidth: CARD_W, windowHeight: cardH,
-      scale: 1, backgroundColor: null, useCORS: true, logging: false,
-    });
-    return await new Promise(res => canvas.toBlob(res, 'image/png'));
-  } finally {
-    card.style.transform = scaled;
-  }
-}
-
-function fileName() {
-  return `${ev.code}-${current.bib}-${current.name}`
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
-}
-
-/** Put the rendered card on the device as a file. Always available. */
-function downloadBlob(blob, name) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);      // Firefox needs it in the document
-  a.click();
-  a.remove();
-  // Revoking immediately can cancel the download on some browsers.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
+const fileName = () => cardFileName(ev.code, current.bib, current.name);
 
 async function downloadImage() {
   const blob = await renderPng();
@@ -438,29 +408,7 @@ async function downloadImage() {
 async function saveImage() {
   const blob = await renderPng();
   if (!blob) throw new Error('Could not render the image.');
-  const file = new File([blob], fileName(), { type: 'image/png' });
-
-  // The share sheet is what people use on a phone. It is offered, never
-  // relied on: a runner who dismisses it used to be left with nothing at all,
-  // and a finisher should not lose their certificate to a stray tap. Hence the
-  // Download button beside this one, and the fall-through below.
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: ev.name });
-      return;
-    } catch (e) {
-      if (e && e.name === 'AbortError') {
-        // They closed the sheet. Say where the file still is, rather than
-        // leaving them wondering whether anything happened.
-        ok('Not shared. Use Download to keep a copy.');
-        return;
-      }
-      // A share that failed for any other reason falls through to a download,
-      // so the card still reaches the device.
-    }
-  }
-  downloadBlob(blob, file.name);
-  ok('Certificate saved to your device.');
+  await shareOrDownload(blob, fileName(), ev.name);
 }
 
 $('download').onclick = e => withBusy(e.currentTarget, async () => {

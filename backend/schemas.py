@@ -400,3 +400,99 @@ class MessageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --------------------------------------------------------------------------
+# Workshops
+# --------------------------------------------------------------------------
+
+class WorkshopIn(BaseModel):
+    title: str = Field(min_length=2, max_length=160)
+    description: Optional[str] = Field(None, max_length=3000)
+    starts_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = Field(None, ge=5, le=1440)
+    mode: Literal["in_person", "online"] = "in_person"
+    venue: Optional[str] = Field(None, max_length=200)
+    meeting_link: Optional[str] = Field(None, max_length=400)
+    host_name: Optional[str] = Field(None, max_length=120)
+    capacity: Optional[int] = Field(None, ge=1, le=10000)
+    price_paise: int = Field(0, ge=0)
+    is_published: bool = False
+    registration_open: bool = True
+
+
+class WorkshopPatch(BaseModel):
+    title: Optional[str] = Field(None, min_length=2, max_length=160)
+    description: Optional[str] = Field(None, max_length=3000)
+    starts_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = Field(None, ge=5, le=1440)
+    mode: Optional[Literal["in_person", "online"]] = None
+    venue: Optional[str] = Field(None, max_length=200)
+    meeting_link: Optional[str] = Field(None, max_length=400)
+    host_name: Optional[str] = Field(None, max_length=120)
+    capacity: Optional[int] = Field(None, ge=1, le=10000)
+    price_paise: Optional[int] = Field(None, ge=0)
+    is_published: Optional[bool] = None
+    registration_open: Optional[bool] = None
+
+
+class WorkshopOut(BaseModel):
+    """A workshop as anyone sees it.
+
+    The meeting link is deliberately absent: it is handed out to people who
+    have a place, by the endpoint that knows whether they do.
+    """
+    id: int
+    slug: str
+    title: str
+    description: Optional[str] = None
+    starts_at: Optional[UtcDatetime] = None
+    duration_minutes: Optional[int] = None
+    mode: str
+    venue: Optional[str] = None
+    host_name: Optional[str] = None
+    capacity: Optional[int] = None
+    price_paise: int = 0
+    cover_url: Optional[str] = None
+    is_published: bool = False
+    registration_open: bool = True
+    # Counts, so somebody can see whether it is nearly full before they commit.
+    places_taken: int = 0
+    places_left: Optional[int] = None
+    waitlisted: int = 0
+    # For a signed-in member: their own standing, and the link if they have a
+    # place and the workshop is online.
+    my_status: Optional[str] = None
+    meeting_link: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WorkshopRegistrationOut(BaseModel):
+    id: int
+    workshop_id: int
+    workshop_title: str
+    workshop_slug: str
+    starts_at: Optional[UtcDatetime] = None
+    status: str
+    created_at: Optional[UtcDatetime] = None
+    attended_at: Optional[UtcDatetime] = None
+    note: Optional[str] = None
+    # For the organiser's list.
+    runner: Optional[str] = None
+    username: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class AttendanceIn(BaseModel):
+    status: Literal["registered", "waitlisted", "cancelled", "attended", "no_show"]
+
+
+class InterestIn(BaseModel):
+    context: Literal["signup", "workshop"] = "signup"
+    workshop_id: Optional[int] = None
+    would_pay_for: Optional[str] = Field(None, max_length=200)
+    fair_price: Optional[int] = Field(None, ge=0, le=1000000)
+    comment: Optional[str] = Field(None, max_length=400)
