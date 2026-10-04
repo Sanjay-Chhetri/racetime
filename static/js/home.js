@@ -6,7 +6,7 @@
    "Race admin" above both. The organiser tools are behind a sign-in now -- they
    are a handful of people, once per event, and they know where they are going. */
 
-import { esc, ok, fail, withBusy } from '/js/ui.js';
+import { esc, ok, fail, withBusy, money } from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -102,6 +102,32 @@ function renderRecent() {
 let me = null;          // null when signed out
 let upcoming = [];
 
+/* "1 October to 31 October" -- a virtual race is a window, not a morning,
+   and a card that shows only the opening date reads as a race already run. */
+function virtualWindow(e) {
+  const d = iso => iso
+    ? new Date(iso).toLocaleDateString(undefined,
+        { day: 'numeric', month: 'long' })
+    : null;
+  const from = d(e.starts_at);
+  const to = d(e.ends_at);
+  if (from && to) return `${from} to ${to}`;
+  if (to) return `Any time until ${to}`;
+  if (from) return `From ${from}`;
+  return 'Dates to be announced';
+}
+
+function showPrice(ev) {
+  const race = (ev.races || []).find(r => String(r.id) === $('enRace').value);
+  const paise = race && ev.is_virtual ? (race.price_paise || 0) : 0;
+  const el = $('enPrice');
+  el.hidden = !paise;
+  if (paise) {
+    el.textContent = `${money(paise)} to enter. You will be shown how to pay `
+      + 'by UPI once you are in.';
+  }
+}
+
 const fmtDate = iso => iso
   ? new Date(iso).toLocaleDateString(undefined,
       { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
@@ -132,8 +158,11 @@ async function loadUpcoming() {
     `${upcoming.length} race${upcoming.length === 1 ? '' : 's'} announced`;
 
   $('eventCards').innerHTML = upcoming.map(e => {
+    // A virtual race prices each distance, so the price belongs on the tag
+    // next to the distance it buys and not in a line of its own.
     const races = e.races.map(r =>
-      `<span class="tag">${esc(r.name)}${r.distance_km ? ' \u00b7 ' + r.distance_km + ' km' : ''}</span>`
+      `<span class="tag">${esc(r.name)}${r.distance_km ? ' \u00b7 ' + r.distance_km + ' km' : ''}${
+        e.is_virtual && r.price_paise ? ' \u00b7 ' + money(r.price_paise) : ''}</span>`
     ).join('');
     const mine = e.my_status ? ENTRY_LABEL[e.my_status] : null;
     const action = mine
@@ -141,14 +170,19 @@ async function loadUpcoming() {
       : e.registration_open
         ? `<button class="primary" data-enter="${esc(e.code)}">Enter this race</button>`
         : '<span class="tag">Entries not open</span>';
-    return `<article class="eventcard${e.photo_url ? ' haspic' : ''}">
+    return `<article class="eventcard${e.photo_url ? ' haspic' : ''}"
+      data-code="${esc(e.code)}">
       ${e.photo_url ? `<div class="evpic">
           <img src="${esc(e.photo_url)}" alt="" loading="lazy">
           ${e.photo_credit ? `<span class="credit">${esc(e.photo_credit)}</span>` : ''}
         </div>` : ''}
-      <div class="evwhen">${esc(fmtDate(e.starts_at))}</div>
+      <div class="evwhen">${e.is_virtual
+        ? esc(virtualWindow(e)) : esc(fmtDate(e.starts_at))}</div>
+      ${e.is_virtual ? '<span class="tag virtual">Virtual race</span>' : ''}
       <h3>${esc(e.name)}</h3>
-      ${e.location ? `<p class="evwhere">${esc(e.location)}</p>` : ''}
+      ${e.is_virtual
+        ? '<p class="evwhere">Run it wherever you are</p>'
+        : e.location ? `<p class="evwhere">${esc(e.location)}</p>` : ''}
       ${e.description ? `<p class="note">${esc(e.description)}</p>` : ''}
       <div class="evraces">${races}</div>
       ${e.entry_note ? `<p class="note tight">${esc(e.entry_note)}</p>` : ''}
@@ -178,8 +212,16 @@ function openEntry(code) {
   $('entryWhen').textContent =
     [fmtDate(ev.starts_at), ev.location].filter(Boolean).join(' \u00b7 ');
   $('enRace').innerHTML = ev.races.map(r =>
-    `<option value="${r.id}">${esc(r.name)}${r.distance_km ? ' \u2014 ' + r.distance_km + ' km' : ''}</option>`
+    `<option value="${r.id}">${esc(r.name)}${
+      r.distance_km ? ' \u2014 ' + r.distance_km + ' km' : ''}${
+      ev.is_virtual && r.price_paise ? ' \u2014 ' + money(r.price_paise) : ''}</option>`
   ).join('') || '<option value="">The organiser will decide</option>';
+  // Nobody is waiting at a finish line to ring an emergency contact for a run
+  // somebody did on their own, so a virtual race does not ask for one.
+  $('enEmergencyWrap').hidden = !!ev.is_virtual;
+  $('enVirtual').hidden = !ev.is_virtual;
+  $('enRace').onchange = () => showPrice(ev);
+  showPrice(ev);
   $('enErr').hidden = true;
   $('entryDialog').dataset.code = code;
   $('entryDialog').showModal();
@@ -190,12 +232,16 @@ $('enSend').onclick = async e => {
   const dlg = $('entryDialog');
   const code = dlg.dataset.code;
   $('enErr').hidden = true;
+  const ev = upcoming.find(e => e.code === code) || {};
   const body = {
     race_id: Number($('enRace').value) || null,
     category: $('enCategory').value.trim() || null,
     gender: $('enGender').value.trim() || null,
-    emergency_contact: $('enEmergency').value.trim() || null,
+    emergency_contact: ev.is_virtual
+      ? null : ($('enEmergency').value.trim() || null),
     note: $('enNote').value.trim() || null,
+    ship_address: ev.is_virtual ? ($('enAddress').value.trim() || null) : null,
+    ship_phone: ev.is_virtual ? ($('enPhone').value.trim() || null) : null,
   };
   try {
     const res = await fetch(`/api/events/${encodeURIComponent(code)}/register`, {
@@ -211,6 +257,14 @@ $('enSend').onclick = async e => {
       return;
     }
     dlg.close();
+    const entry = await res.json().catch(() => ({}));
+    if (ev.is_virtual) {
+      // Telling them to go and pay is the whole next step, so it is a link and
+      // not a sentence they have to act on from memory.
+      ok('You are entered. Open your race page to pay and log your runs.');
+      location.href = '/virtual.html#' + encodeURIComponent(code);
+      return;
+    }
     ok('Entry sent. The organiser will confirm it and give you a bib.');
     loadUpcoming();
   } catch {

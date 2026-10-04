@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, List, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, Field
@@ -32,6 +32,24 @@ class RaceIn(BaseModel):
     distance_km: float = 0.0
     sequence: int = 0
     start_time: Optional[UtcDatetime] = None
+    # Paise. Capped at a lakh, which is not a race entry fee -- a stray extra
+    # zero should bounce here rather than be shown to an entrant.
+    price_paise: int = Field(0, ge=0, le=10_000_000)
+
+
+class RacePatch(BaseModel):
+    """Changing one thing about a race.
+
+    `RaceIn` requires a name, because creating a nameless race is not a thing
+    anybody wants. Editing is different: the price screen sends a price and
+    nothing else, and against `RaceIn` that was a 422 reading "Field required"
+    -- which told the organiser nothing and cost an afternoon.
+    """
+    name: Optional[str] = Field(None, min_length=1, max_length=80)
+    distance_km: Optional[float] = None
+    sequence: Optional[int] = None
+    start_time: Optional[UtcDatetime] = None
+    price_paise: Optional[int] = Field(None, ge=0, le=10_000_000)
 
 
 class RaceOut(RaceIn):
@@ -126,6 +144,8 @@ class EventOut(BaseModel):
     registration_open: bool = False
     photo_url: Optional[str] = None
     photo_credit: Optional[str] = None
+    is_virtual: bool = False
+    ends_at: Optional[UtcDatetime] = None
     races: List[RaceOut] = []
     checkpoints: List[CheckpointOut] = []
 
@@ -336,6 +356,9 @@ class EventPublicOut(BaseModel):
     registration_open: bool = False
     photo_url: Optional[str] = None
     photo_credit: Optional[str] = None
+    # A virtual race: run it where you live, inside the window, send evidence.
+    is_virtual: bool = False
+    ends_at: Optional[UtcDatetime] = None
     races: List[RaceOut] = []
     entrants: int = 0
     # Filled in for a signed-in runner: their own registration, if any.
@@ -351,6 +374,9 @@ class RegistrationIn(BaseModel):
     gender: Optional[str] = Field(None, max_length=16)
     emergency_contact: Optional[str] = Field(None, max_length=160)
     note: Optional[str] = Field(None, max_length=400)
+    # Only asked by a virtual race, and only so a medal can be posted.
+    ship_address: Optional[str] = Field(None, max_length=400)
+    ship_phone: Optional[str] = Field(None, max_length=32)
 
 
 class RegistrationOut(BaseModel):
@@ -371,6 +397,26 @@ class RegistrationOut(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     bib: Optional[str] = None
+
+    # --- money. Never public: every route returning this needs the entrant
+    # themselves or an operator.
+    payment_status: str = "unpaid"
+    amount_paise: int = 0
+    payment_ref: Optional[str] = None
+    paid_at: Optional[UtcDatetime] = None
+    ship_address: Optional[str] = None
+    ship_phone: Optional[str] = None
+
+    # --- a virtual race, summed from the submissions on every request ---
+    is_virtual: bool = False
+    target_km: float = 0.0
+    done_km: float = 0.0
+    runs_counted: int = 0
+    runs_flagged: int = 0
+    complete: bool = False
+    # True when the distance is done *and* the entry is paid for, which is the
+    # pair of conditions a certificate needs.
+    certificate_ready: bool = False
 
 
 class RegistrationDecision(BaseModel):
@@ -496,3 +542,98 @@ class InterestIn(BaseModel):
     would_pay_for: Optional[str] = Field(None, max_length=200)
     fair_price: Optional[int] = Field(None, ge=0, le=1000000)
     comment: Optional[str] = Field(None, max_length=400)
+
+
+# --------------------------------------------------------------------------
+# Virtual races
+# --------------------------------------------------------------------------
+
+class VirtualSetupIn(BaseModel):
+    """How an organiser turns an event into a virtual race, and gets paid."""
+    is_virtual: Optional[bool] = None
+    ends_at: Optional[datetime] = None
+    upi_id: Optional[str] = Field(None, max_length=120)
+    upi_name: Optional[str] = Field(None, max_length=120)
+    payment_note: Optional[str] = Field(None, max_length=400)
+
+
+class VirtualSetupOut(BaseModel):
+    """The virtual settings, for the organiser's own screen.
+
+    Separate from EventOut because `GET /api/events/{code}` is **public** --
+    the window and the prices belong there, a UPI handle does not. It was on
+    EventOut for about an hour and the public event response carried it; a
+    schema shared between an open route and an admin screen will leak sooner
+    or later, so these two are not shared.
+    """
+    code: str
+    is_virtual: bool = False
+    starts_at: Optional[UtcDatetime] = None
+    ends_at: Optional[UtcDatetime] = None
+    upi_id: Optional[str] = None
+    upi_name: Optional[str] = None
+    payment_note: Optional[str] = None
+    payment_qr_url: Optional[str] = None
+    races: List[RaceOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class PaymentInfoOut(BaseModel):
+    """What one entrant needs in order to pay, and what they have paid.
+
+    The UPI handle and the QR code are in here rather than on the public event
+    because only somebody who has entered needs them, and a collection handle
+    on an open page is an invitation.
+    """
+    registration_id: int
+    amount_paise: int = 0
+    payment_status: str = "unpaid"
+    payment_ref: Optional[str] = None
+    paid_at: Optional[UtcDatetime] = None
+    upi_id: Optional[str] = None
+    upi_name: Optional[str] = None
+    payment_note: Optional[str] = None
+    qr_url: Optional[str] = None
+
+
+class PaymentClaimIn(BaseModel):
+    """The entrant's side: "I have sent it, here is the reference."
+
+    Not a proof of anything. It is what lets the organiser find the payment in
+    their own statement, which is the proof.
+    """
+    payment_ref: str = Field(..., min_length=3, max_length=60)
+
+
+class PaymentDecisionIn(BaseModel):
+    """The organiser's side, after looking at their account."""
+    payment_status: Literal["unpaid", "claimed", "paid", "waived"]
+
+
+class RunOut(BaseModel):
+    id: int
+    registration_id: int
+    # Who ran it. Both routes returning this need the runner themselves or an
+    # operator, so a name here reaches nobody who could not already see it.
+    runner: Optional[str] = None
+    distance_km: float
+    ran_on: date
+    duration_seconds: Optional[int] = None
+    source: str = "app"
+    note: Optional[str] = None
+    evidence_url: Optional[str] = None
+    status: str = "accepted"
+    # Machine written, shown to the organiser and to the runner: being told why
+    # something was queried is better than wondering.
+    flags: List[str] = []
+    created_at: Optional[UtcDatetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RunDecisionIn(BaseModel):
+    status: Literal["accepted", "flagged", "rejected"]
+    note: Optional[str] = Field(None, max_length=400)

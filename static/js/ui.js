@@ -275,3 +275,10 @@ export async function fitImageForUpload(file, onNote) {
   throw new Error('That image is too large to upload even after resizing. ' +
                   'Please save it smaller and try again.');
 }
+
+/* Paise to something a person reads. Money is held in paise everywhere -- a
+   hundred entries priced in floating-point rupees end up short -- so every
+   screen that shows a price goes through here rather than dividing by 100 in
+   six places and rounding differently in each. */
+export const money = paise => '\u20b9' + (Number(paise || 0) / 100)
+  .toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });

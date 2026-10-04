@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181d">
+<meta name="robots" content="noindex">
+<title>My virtual race · RaceTime</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314181d'/%3E%3Cpath d='M7 22V10h7a4 4 0 010 8h-2l5 4h-4l-4-4v4z' fill='%23f2c500'/%3E%3C/svg%3E">
+<script>try{document.documentElement.dataset.wallpaper=localStorage.getItem('racetime.wallpaper')||'dawn'}catch(e){document.documentElement.dataset.wallpaper='dawn'}</script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div class="masthead">
+  <h1 id="raceName">My virtual race</h1>
+  <span class="where"><a href="/me.html#entries">my entries</a> ·
+    <a href="/">home</a></span>
+</div>
+
+<p class="fieldErr" id="err" hidden></p>
+
+<!-- How far they have got. First, because it is the only thing they came for. -->
+<section class="panel" id="progressPanel" hidden>
+  <div class="row between">
+    <h2 id="progressTitle">Your progress</h2>
+    <span class="tag" id="windowTag"></span>
+  </div>
+  <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+  <p class="note" id="progressNote"></p>
+  <div id="doneBox" hidden>
+    <p class="note ok-note" id="doneNote"></p>
+    <div class="row">
+      <a class="button primary" id="certLink" href="#">Get your certificate</a>
+    </div>
+  </div>
+</section>
+
+<!-- Paying. Shown only while something is owed. -->
+<section class="panel" id="payPanel" hidden>
+  <h2>Paying your entry</h2>
+  <p class="note" id="payState"></p>
+  <div class="paybox">
+    <div class="payqr" id="qrBox" hidden>
+      <img id="qrImg" alt="The organiser's UPI QR code">
+      <p class="note tight">Scan with any UPI app</p>
+    </div>
+    <div class="paywho">
+      <p id="payTo"></p>
+      <p class="note" id="payNote"></p>
+      <label for="payRef">The reference number your app gave you</label>
+      <input id="payRef" placeholder="e.g. 431290118822" autocomplete="off">
+      <p class="note tight">Paste it here after you pay. The organiser checks
+      it against their own account &mdash; this app never touches the money and
+      holds no card or bank details.</p>
+      <p class="fieldErr" id="payErr" hidden></p>
+      <button id="paySend" class="primary">I have paid</button>
+    </div>
+  </div>
+</section>
+
+<!-- Logging a run. -->
+<section class="panel" id="logPanel" hidden>
+  <h2>Log a run</h2>
+  <p class="note">Run it where you like, with any watch, phone app or
+  treadmill. Add a photo or screenshot of the result &mdash; a run without one
+  still counts, but the organiser will be asked to look at it.</p>
+  <div class="row">
+    <div><label for="runKm">How far, in km</label>
+      <input id="runKm" type="number" step="0.01" min="0.1" max="500"
+             inputmode="decimal" placeholder="10"></div>
+    <div><label for="runDate">What day</label>
+      <input id="runDate" type="date"></div>
+  </div>
+  <div class="row">
+    <div><label for="runTime">How long <span class="opt">optional</span></label>
+      <input id="runTime" placeholder="58:30 or 1:12:40"></div>
+    <div><label for="runSource">Tracked with</label>
+      <select id="runSource">
+        <option value="app">A phone app</option>
+        <option value="watch">A watch</option>
+        <option value="treadmill">A treadmill</option>
+        <option value="other">Something else</option>
+      </select></div>
+  </div>
+  <label for="runFile">Photo or screenshot <span class="opt">optional</span></label>
+  <input id="runFile" type="file" accept="image/*">
+  <p class="note tight" id="runFileNote" hidden></p>
+  <label for="runNote">Anything to add <span class="opt">optional</span></label>
+  <input id="runNote" placeholder="Up to Deolo and back">
+  <p class="fieldErr" id="runErr" hidden></p>
+  <button id="runSend" class="primary">Log this run</button>
+</section>
+
+<!-- What they have logged. -->
+<section class="panel" id="runsPanel" hidden>
+  <h2>Your runs <span class="tab-n" id="nRuns"></span></h2>
+  <div id="runList"></div>
+</section>
+
+<!-- The certificate, built here and never on the server. -->
+<section class="panel noprint" id="certPanel" hidden>
+  <h2>Your certificate</h2>
+  <div class="card-frame" id="cardFrame"></div>
+  <div class="row" style="margin-top:1rem">
+    <button id="share" class="primary">Share</button>
+    <button id="download">Download</button>
+  </div>
+  <p class="note" style="margin:.7rem 0 0">
+    It carries the distance, the window and your name &mdash; not a time or a
+    placing, because everybody ran their own course.
+  </p>
+</section>
+
+<script type="module" src="/js/virtual.js"></script>
+</body>
+</html>

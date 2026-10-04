@@ -8,12 +8,12 @@ import io
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import (
-    Depends, FastAPI, HTTPException, Request, UploadFile, File,
+    Depends, FastAPI, Form, HTTPException, Request, UploadFile, File,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -186,6 +186,25 @@ _add_missing_columns("users", {
     "announcements_opt_in": "BOOLEAN",
     "last_seen_at": "TIMESTAMP",
 })
+_add_missing_columns("events", {
+    "is_virtual": "BOOLEAN",
+    "ends_at": "TIMESTAMP",
+    "upi_id": "VARCHAR(120)",
+    "upi_name": "VARCHAR(120)",
+    "payment_note": "VARCHAR(400)",
+    "payment_qr_url": "VARCHAR(255)",
+    "payment_qr_blob": _BLOB,
+    "payment_qr_type": "VARCHAR(32)",
+})
+_add_missing_columns("races", {"price_paise": "INTEGER"})
+_add_missing_columns("registrations", {
+    "payment_status": "VARCHAR(10)",
+    "amount_paise": "INTEGER",
+    "payment_ref": "VARCHAR(60)",
+    "paid_at": "TIMESTAMP",
+    "ship_address": "VARCHAR(400)",
+    "ship_phone": "VARCHAR(32)",
+})
 
 
 def _backfill_flags():
@@ -197,6 +216,7 @@ def _backfill_flags():
     """
     for table, column in (("events", "is_published"),
                           ("events", "registration_open"),
+                          ("events", "is_virtual"),
                           ("users", "announcements_opt_in")):
         try:
             with engine.begin() as conn:
@@ -221,8 +241,26 @@ def _backfill_profiles():
         print(f"  Could not backfill user visibility: {type(e).__name__}: {e}")
 
 
+def _backfill_money():
+    """Zero is not NULL, and the response models say int, not Optional[int].
+
+    Same trap as the booleans: ADD COLUMN leaves old rows NULL, and a NULL
+    price would come back out of a race that is simply free.
+    """
+    for table, column, value in (("races", "price_paise", "0"),
+                                 ("registrations", "amount_paise", "0"),
+                                 ("registrations", "payment_status", "'unpaid'")):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"UPDATE {table} SET {column} = {value} "
+                                  f"WHERE {column} IS NULL"))
+        except Exception as e:                  # noqa: BLE001
+            print(f"  Could not backfill {table}.{column}: {type(e).__name__}: {e}")
+
+
 _backfill_flags()
 _backfill_profiles()
+_backfill_money()
 
 
 def _seed_demo_event():
@@ -300,12 +338,18 @@ def _seed_accounts():
         db.close()
 
 
-_seed_accounts()
-_seed_demo_event()
-
+# These two were below the seeding until 2026-10-05, which is the shape of the
+# outage on 2026-09-28: the demo-event seed reads races, checkpoints and
+# participants, so on a database predating `race_id` it was querying a column
+# that did not exist yet. It never brought the site down only because the seed
+# is wrapped -- the import survived and the seeding silently did not happen.
+# Migrations run before anything that reads the schema. All of them.
 _add_missing_columns("checkpoints", {"race_id": "INTEGER"})
 _add_missing_columns("participants", {"race_id": "INTEGER", "gender": "VARCHAR(16)"})
 _backfill_default_race()
+
+_seed_accounts()
+_seed_demo_event()
 
 app = FastAPI(title="RaceTime", version="1.0")
 
@@ -792,7 +836,43 @@ def my_registrations(user: models.User = Depends(auth.require_user),
     return [_registration_out(db, r) for r in rows]
 
 
+# A run that is accepted and a run that is flagged both count towards the
+# distance. Only a rejection takes one out, which is what makes flagging safe
+# to do automatically.
+COUNTS_TOWARDS = ("accepted", "flagged")
+SETTLED = ("paid", "waived")
+
+
+def _progress(db: Session, reg: models.Registration) -> dict:
+    """How far somebody has got in a virtual race. Summed, never stored.
+
+    The same rule as results: the submissions are the record, the total is a
+    calculation. Rejecting a run two weeks later changes a status and the next
+    read of this gives the new answer -- there is nothing to recalculate and
+    write back, and so nothing that can disagree with the evidence.
+    """
+    rows = (db.query(models.RunSubmission)
+            .filter(models.RunSubmission.registration_id == reg.id).all())
+    counted = [r for r in rows if r.status in COUNTS_TOWARDS]
+    done = round(sum(r.distance_km for r in counted), 3)
+    target = (reg.race.distance_km if reg.race else 0.0) or 0.0
+    # A tenth of a kilometre of slack. A watch that calls 10K 9.98 has not
+    # failed to finish, and nobody should be arguing with a GPS over 20 metres.
+    complete = bool(target) and done >= target - 0.1
+    owes = (reg.amount_paise or 0) > 0 and (reg.payment_status or "unpaid") not in SETTLED
+    return dict(
+        done_km=done, target_km=target, runs_counted=len(counted),
+        runs_flagged=sum(1 for r in counted if r.status == "flagged"),
+        complete=complete,
+        # A certificate needs the distance done *and* the entry settled. An
+        # unpaid certificate is a free race with extra steps.
+        certificate_ready=bool(complete and not owes
+                               and reg.status not in ("withdrawn", "rejected")),
+    )
+
+
 def _registration_out(db: Session, r: models.Registration) -> schemas.RegistrationOut:
+    virtual = bool(r.event and r.event.is_virtual)
     bib = None
     if r.status == "confirmed":
         entry = (db.query(models.Participant)
@@ -817,6 +897,16 @@ def _registration_out(db: Session, r: models.Registration) -> schemas.Registrati
         email=r.user.email if r.user else None,
         phone=r.user.phone if r.user else None,
         bib=bib,
+        payment_status=r.payment_status or "unpaid",
+        amount_paise=r.amount_paise or 0,
+        payment_ref=r.payment_ref,
+        paid_at=r.paid_at,
+        ship_address=r.ship_address,
+        ship_phone=r.ship_phone,
+        is_virtual=virtual,
+        # Only for a virtual race: an ordinary race pays nothing for a query
+        # per entry that would always answer zero.
+        **(_progress(db, r) if virtual else {}),
     )
 
 
@@ -857,6 +947,7 @@ def upcoming_events(request: Request, db: Session = Depends(get_db)):
             entry_note=ev.entry_note,
             photo_url=ev.photo_url, photo_credit=ev.photo_credit,
             registration_open=bool(ev.registration_open),
+            is_virtual=bool(ev.is_virtual), ends_at=ev.ends_at,
             races=[schemas.RaceOut.model_validate(r) for r in ev.races],
             entrants=entrants, my_status=mine,
         ))
@@ -883,6 +974,10 @@ def register_for_event(code: str, payload: schemas.RegistrationIn,
     ev = _get_event(db, code)
     if not ev.is_published or not ev.registration_open:
         raise HTTPException(409, "Entries are not open for this race.")
+    # A virtual race whose window has closed is over, whatever the entries
+    # switch still says -- there is no longer any time in which to run it.
+    if ev.is_virtual and ev.ends_at and utcnow() > _aware(ev.ends_at):
+        raise HTTPException(409, "This virtual race has finished.")
 
     existing = (db.query(models.Registration)
                 .filter(models.Registration.event_id == ev.id,
@@ -900,6 +995,11 @@ def register_for_event(code: str, payload: schemas.RegistrationIn,
         existing.gender = payload.gender
         existing.emergency_contact = payload.emergency_contact
         existing.note = payload.note
+        existing.ship_address = payload.ship_address
+        existing.ship_phone = payload.ship_phone
+        # They are entering again, possibly at a different distance, so the
+        # price is taken again. What they have already paid is not wiped.
+        existing.amount_paise = _price_of(db, race_id)
         existing.decided_at = None
         db.commit()
         db.refresh(existing)
@@ -909,6 +1009,8 @@ def register_for_event(code: str, payload: schemas.RegistrationIn,
         event_id=ev.id, user_id=user.id, race_id=race_id,
         category=payload.category, gender=payload.gender,
         emergency_contact=payload.emergency_contact, note=payload.note,
+        ship_address=payload.ship_address, ship_phone=payload.ship_phone,
+        amount_paise=_price_of(db, race_id),
     )
     db.add(reg)
     db.commit()
@@ -964,6 +1066,17 @@ def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
         raise HTTPException(404, "No such entry.")
     ev = reg.event
 
+    if payload.status == "confirmed" and ev.is_virtual:
+        # Nobody pins a number on for a virtual race: there is no start line to
+        # identify anybody at. Confirming it just means the entry is accepted,
+        # and no Participant is created, so the start list stays a start list.
+        reg.status = "confirmed"
+        reg.race_id = _resolve_race_id(ev, payload.race_id or reg.race_id)
+        reg.decided_at = utcnow()
+        db.commit()
+        db.refresh(reg)
+        return _registration_out(db, reg)
+
     if payload.status == "confirmed":
         bib = (payload.bib or "").strip()
         if not bib:
@@ -1002,6 +1115,461 @@ def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
     db.commit()
     db.refresh(reg)
     return _registration_out(db, reg)
+
+
+# --------------------------------------------------------------------------
+# Virtual races
+#
+# A race nobody travels to. The organiser sets the distances, the prices and
+# the window; entrants run where they live and send a photograph of the watch.
+# Nothing here invents a second kind of event -- a virtual race is an Event
+# with a flag, its distances are Races, and its entries are Registrations, so
+# the certificate, the listing and the admin screens already work.
+# --------------------------------------------------------------------------
+
+# A single run, bounded by what a person can plausibly do and by what is
+# plainly a typo. 500km in one go is not a run; 50m is not one either.
+MIN_RUN_KM, MAX_RUN_KM = 0.1, 500.0
+# 22 km/h sustained is faster than the marathon world record. Anything above it
+# is a treadmill left running, a cycle logged as a run, or a mistyped time.
+IMPLAUSIBLE_KMH = 22.0
+
+
+def _aware(dt):
+    """A stored datetime, with the UTC it was written in put back on.
+
+    SQLite does not persist tzinfo even when the column says
+    DateTime(timezone=True), so a value read back is naive while anything
+    arriving from a request is aware -- and comparing the two raises. Output
+    gets this through `as_utc` in schemas; comparisons need it here. It cost a
+    500 on the first entry into the first virtual race.
+    """
+    if dt is None or dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=timezone.utc)
+
+
+def _price_of(db: Session, race_id: Optional[int]) -> int:
+    """What a distance costs, read at the moment somebody enters.
+
+    Snapshotted onto the registration rather than looked up later: if the
+    organiser raises the price next week, what this entrant owes does not move.
+    """
+    if not race_id:
+        return 0
+    race = db.get(Race, race_id)
+    return int(race.price_paise or 0) if race else 0
+
+
+def _get_registration(db: Session, reg_id: int,
+                      user: models.User) -> models.Registration:
+    """Somebody's own entry, or anybody's if you are an operator."""
+    reg = db.get(models.Registration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such entry.")
+    if reg.user_id != user.id and not user.is_operator:
+        raise HTTPException(403, "That is not your entry.")
+    return reg
+
+
+def _run_out(r: models.RunSubmission) -> schemas.RunOut:
+    who = None
+    if r.registration is not None and r.registration.user is not None:
+        u = r.registration.user
+        who = u.display_name or u.username
+    return schemas.RunOut(
+        id=r.id, registration_id=r.registration_id, runner=who,
+        distance_km=r.distance_km,
+        ran_on=r.ran_on, duration_seconds=r.duration_seconds, source=r.source,
+        note=r.note, evidence_url=r.evidence_url, status=r.status,
+        flags=[f for f in (r.flags or "").split(",") if f],
+        created_at=r.created_at,
+    )
+
+
+@app.get("/api/events/{code}/virtual", response_model=schemas.VirtualSetupOut,
+         dependencies=ADMIN)
+def get_virtual(code: str, db: Session = Depends(get_db)):
+    """The virtual settings, including how entrants are asked to pay.
+
+    Operator only, and deliberately not part of the public event response.
+    """
+    return _get_event(db, code)
+
+
+@app.patch("/api/events/{code}/virtual",
+           response_model=schemas.VirtualSetupOut, dependencies=ADMIN)
+def set_virtual(code: str, payload: schemas.VirtualSetupIn,
+                db: Session = Depends(get_db)):
+    """Make an event a virtual race, and say how to pay for it.
+
+    The prices live on the races, because the organiser prices each distance.
+    """
+    ev = _get_event(db, code)
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("is_virtual") is False:
+        entries = (db.query(models.Registration)
+                   .filter(models.Registration.event_id == ev.id,
+                           models.Registration.status.in_(("pending", "confirmed")))
+                   .count())
+        if entries:
+            raise HTTPException(
+                409, f"{entries} people have entered this as a virtual race. "
+                     "Close entries instead of changing what kind of race it is.")
+    for field, value in data.items():
+        setattr(ev, field, value)
+    if (ev.is_virtual and ev.starts_at and ev.ends_at
+            and _aware(ev.ends_at) < _aware(ev.starts_at)):
+        raise HTTPException(422, "The window closes before it opens.")
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@app.post("/api/events/{code}/payment-qr",
+          response_model=schemas.VirtualSetupOut, dependencies=ADMIN)
+async def upload_payment_qr(code: str, file: UploadFile = File(...),
+                            db: Session = Depends(get_db)):
+    """The organiser's own UPI QR code, as an image.
+
+    Deliberately an upload rather than something generated from a UPI id: the
+    code people scan should be the one the organiser already has and has
+    already tested against their own bank, not one this app composed and
+    nobody checked.
+    """
+    ev = _get_event(db, code)
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(422, "That file is empty")
+    if len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"The image must be under {MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+    ev.payment_qr_type = _sniff_image(blob)
+    ev.payment_qr_blob = blob
+    ev.payment_qr_url = f"/api/events/{ev.code}/payment-qr?v={secrets.token_hex(4)}"
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+@app.get("/api/events/{code}/payment-qr")
+def get_payment_qr(code: str, request: Request, db: Session = Depends(get_db)):
+    """Shown to somebody who has entered, and to operators. Not to the public.
+
+    It is a collection handle. On an open page it is an invitation to anybody
+    who fancies printing their own version of this race.
+    """
+    ev = _get_event(db, code)
+    viewer = auth.optional_user(request, db)
+    if viewer is None:
+        raise HTTPException(401, "Sign in to see how to pay.")
+    if not viewer.is_operator:
+        mine = (db.query(models.Registration)
+                .filter(models.Registration.event_id == ev.id,
+                        models.Registration.user_id == viewer.id,
+                        models.Registration.status.in_(("pending", "confirmed")))
+                .first())
+        if mine is None:
+            raise HTTPException(403, "Enter the race first.")
+    if not ev.payment_qr_blob:
+        raise HTTPException(404, "This race has no payment QR code")
+    return Response(
+        content=ev.payment_qr_blob,
+        media_type=ev.payment_qr_type or "image/png",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@app.delete("/api/events/{code}/payment-qr", status_code=204, dependencies=ADMIN)
+def delete_payment_qr(code: str, db: Session = Depends(get_db)):
+    ev = _get_event(db, code)
+    ev.payment_qr_blob = None
+    ev.payment_qr_type = None
+    ev.payment_qr_url = None
+    db.commit()
+
+
+@app.get("/api/registrations/{reg_id}/payment",
+         response_model=schemas.PaymentInfoOut)
+def payment_info(reg_id: int, user: models.User = Depends(auth.require_user),
+                 db: Session = Depends(get_db)):
+    """What this entrant owes, and where to send it."""
+    reg = _get_registration(db, reg_id, user)
+    ev = reg.event
+    return schemas.PaymentInfoOut(
+        registration_id=reg.id,
+        amount_paise=reg.amount_paise or 0,
+        payment_status=reg.payment_status or "unpaid",
+        payment_ref=reg.payment_ref,
+        paid_at=reg.paid_at,
+        upi_id=ev.upi_id if ev else None,
+        upi_name=ev.upi_name if ev else None,
+        payment_note=ev.payment_note if ev else None,
+        qr_url=ev.payment_qr_url if ev else None,
+    )
+
+
+@app.post("/api/registrations/{reg_id}/payment",
+          response_model=schemas.RegistrationOut)
+def claim_payment(reg_id: int, payload: schemas.PaymentClaimIn,
+                  user: models.User = Depends(auth.require_user),
+                  db: Session = Depends(get_db)):
+    """The entrant says they have sent the money, and gives the reference.
+
+    This does not mark the entry paid. Only the organiser, looking at their own
+    account, can do that -- a self-service "I have paid" button that counted
+    would be an honour system with a spreadsheet attached.
+    """
+    reg = _get_registration(db, reg_id, user)
+    if reg.user_id != user.id:
+        raise HTTPException(403, "An organiser confirms payment, not claims it.")
+    if (reg.amount_paise or 0) <= 0:
+        raise HTTPException(409, "There is nothing to pay for this entry.")
+    if (reg.payment_status or "unpaid") in SETTLED:
+        raise HTTPException(409, "This entry is already settled.")
+    reg.payment_ref = payload.payment_ref.strip()
+    reg.payment_status = "claimed"
+    db.commit()
+    db.refresh(reg)
+    return _registration_out(db, reg)
+
+
+@app.patch("/api/registrations/{reg_id}/payment",
+           response_model=schemas.RegistrationOut, dependencies=ADMIN)
+def decide_payment(reg_id: int, payload: schemas.PaymentDecisionIn,
+                   db: Session = Depends(get_db)):
+    """The organiser, having found it in their account. Or waiving it."""
+    reg = db.get(models.Registration, reg_id)
+    if reg is None:
+        raise HTTPException(404, "No such entry.")
+    reg.payment_status = payload.payment_status
+    reg.paid_at = utcnow() if payload.payment_status in SETTLED else None
+    db.commit()
+    db.refresh(reg)
+    return _registration_out(db, reg)
+
+
+def _flags_for(db: Session, reg: models.Registration, distance_km: float,
+               ran_on: date, duration_seconds: Optional[int],
+               has_evidence: bool) -> List[str]:
+    """What looks wrong about a run, without refusing it.
+
+    A flagged run still counts. The organiser gets a short list to look at
+    instead of a queue of everything, and the runner is told what was queried
+    rather than left guessing -- which is also how they fix a typo themselves.
+    """
+    flags = []
+    if not has_evidence:
+        flags.append("no-evidence")
+    if duration_seconds and duration_seconds > 0:
+        if distance_km / (duration_seconds / 3600.0) > IMPLAUSIBLE_KMH:
+            flags.append("fast")
+    target = (reg.race.distance_km if reg.race else 0.0) or 0.0
+    if target and distance_km > target:
+        flags.append("long")
+    twin = (db.query(models.RunSubmission)
+            .filter(models.RunSubmission.registration_id == reg.id,
+                    models.RunSubmission.ran_on == ran_on,
+                    models.RunSubmission.status.in_(COUNTS_TOWARDS))
+            .all())
+    if any(abs((x.distance_km or 0) - distance_km) < 0.05 for x in twin):
+        flags.append("duplicate")
+    return flags
+
+
+@app.post("/api/registrations/{reg_id}/runs", response_model=schemas.RunOut,
+          status_code=201)
+async def submit_run(reg_id: int,
+                     distance_km: float = Form(...),
+                     ran_on: date = Form(...),
+                     duration_seconds: Optional[int] = Form(None),
+                     source: str = Form("app"),
+                     note: Optional[str] = Form(None),
+                     file: Optional[UploadFile] = File(None),
+                     user: models.User = Depends(auth.require_user),
+                     db: Session = Depends(get_db)):
+    """One run, towards the distance. Accepted on arrival.
+
+    Multipart because the evidence is a photograph of a watch or a screenshot
+    of an app, and asking somebody to turn that into JSON is asking them not to
+    bother.
+    """
+    reg = _get_registration(db, reg_id, user)
+    if reg.user_id != user.id:
+        raise HTTPException(403, "An organiser cannot run it for them.")
+    ev = reg.event
+    if not ev or not ev.is_virtual:
+        raise HTTPException(409, "This is not a virtual race.")
+    if reg.status in ("withdrawn", "rejected"):
+        raise HTTPException(409, "This entry is not active.")
+
+    if not (MIN_RUN_KM <= distance_km <= MAX_RUN_KM):
+        raise HTTPException(
+            422, f"A run has to be between {MIN_RUN_KM:g} and {MAX_RUN_KM:g} km.")
+    today = utcnow().date()
+    if ran_on > today:
+        raise HTTPException(422, "That date has not happened yet.")
+    # The window is the rule, not a plausibility check, so it refuses rather
+    # than flags. A run from before the race opened is somebody else's run.
+    if ev.starts_at and ran_on < ev.starts_at.date():
+        raise HTTPException(
+            422, f"This race opened on {ev.starts_at.date().isoformat()}.")
+    if ev.ends_at and ran_on > ev.ends_at.date():
+        raise HTTPException(
+            422, f"This race closed on {ev.ends_at.date().isoformat()}.")
+    if source not in ("app", "watch", "treadmill", "other"):
+        source = "other"
+
+    blob = await file.read() if file is not None else b""
+    if blob and len(blob) > MAX_ARTWORK_BYTES:
+        raise HTTPException(
+            413, f"The screenshot must be under "
+                 f"{MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
+
+    run = models.RunSubmission(
+        registration_id=reg.id, distance_km=round(float(distance_km), 3),
+        ran_on=ran_on, duration_seconds=duration_seconds or None,
+        source=source, note=(note or None),
+    )
+    if blob:
+        run.evidence_type = _sniff_image(blob)
+        run.evidence_blob = blob
+    flags = _flags_for(db, reg, run.distance_km, ran_on, run.duration_seconds,
+                       bool(blob))
+    run.flags = ",".join(flags) or None
+    run.status = "flagged" if flags else "accepted"
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    if blob:
+        run.evidence_url = f"/api/runs/{run.id}/evidence"
+        db.commit()
+        db.refresh(run)
+    return _run_out(run)
+
+
+@app.get("/api/registrations/{reg_id}/runs", response_model=List[schemas.RunOut])
+def list_runs(reg_id: int, user: models.User = Depends(auth.require_user),
+              db: Session = Depends(get_db)):
+    reg = _get_registration(db, reg_id, user)
+    rows = (db.query(models.RunSubmission)
+            .filter(models.RunSubmission.registration_id == reg.id)
+            .order_by(models.RunSubmission.ran_on.desc(),
+                      models.RunSubmission.id.desc()).all())
+    return [_run_out(r) for r in rows]
+
+
+@app.get("/api/runs/{run_id}/evidence")
+def run_evidence(run_id: int, user: models.User = Depends(auth.require_user),
+                 db: Session = Depends(get_db)):
+    """The screenshot. Private to the runner and the organisers.
+
+    It is a picture of where somebody was and when, often with a map of the
+    road outside their house on it. Results are public; this is not.
+    """
+    run = db.get(models.RunSubmission, run_id)
+    if run is None or not run.evidence_blob:
+        raise HTTPException(404, "No evidence for that run")
+    reg = run.registration
+    if reg is None or (reg.user_id != user.id and not user.is_operator):
+        raise HTTPException(403, "That is not yours to look at.")
+    return Response(
+        content=run.evidence_blob,
+        media_type=run.evidence_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@app.patch("/api/runs/{run_id}", response_model=schemas.RunOut, dependencies=ADMIN)
+def decide_run(run_id: int, payload: schemas.RunDecisionIn,
+               db: Session = Depends(get_db)):
+    """An organiser clearing a flag, or rejecting a run.
+
+    Rejecting takes the distance back out of the total on the next read. The
+    row stays: it is what was submitted, and a race that quietly deletes
+    somebody's evidence cannot answer a question about it later.
+    """
+    run = db.get(models.RunSubmission, run_id)
+    if run is None:
+        raise HTTPException(404, "No such run.")
+    run.status = payload.status
+    if payload.note:
+        run.note = payload.note
+    run.decided_at = utcnow()
+    db.commit()
+    db.refresh(run)
+    return _run_out(run)
+
+
+@app.delete("/api/runs/{run_id}", status_code=204)
+def delete_run(run_id: int, user: models.User = Depends(auth.require_user),
+               db: Session = Depends(get_db)):
+    """A runner removing their own mistake, or an operator removing anything.
+
+    Unlike a read, a submission is somebody's own entry about themselves, and
+    the usual reason to remove one is that they typed 50 for 5.
+    """
+    run = db.get(models.RunSubmission, run_id)
+    if run is None:
+        return
+    reg = run.registration
+    if reg is None or (reg.user_id != user.id and not user.is_operator):
+        raise HTTPException(403, "That is not your run.")
+    db.delete(run)
+    db.commit()
+
+
+@app.get("/api/events/{code}/runs", response_model=List[schemas.RunOut],
+         dependencies=ADMIN)
+def event_runs(code: str, status: Optional[str] = None,
+               db: Session = Depends(get_db)):
+    """Every submission for a race, newest first. `?status=flagged` to review."""
+    ev = _get_event(db, code)
+    q = (db.query(models.RunSubmission)
+         .join(models.Registration,
+               models.RunSubmission.registration_id == models.Registration.id)
+         .filter(models.Registration.event_id == ev.id))
+    if status:
+        q = q.filter(models.RunSubmission.status == status)
+    rows = q.order_by(models.RunSubmission.id.desc()).all()
+    return [_run_out(r) for r in rows]
+
+
+@app.get("/api/events/{code}/shipping.csv", dependencies=ADMIN)
+def shipping_csv(code: str, db: Session = Depends(get_db)):
+    """Addresses for posting medals, for the people who have finished.
+
+    Only the finishers, and only the settled ones: a list of everybody who
+    entered is a list of parcels nobody owes.
+    """
+    ev = _get_event(db, code)
+    regs = (db.query(models.Registration)
+            .filter(models.Registration.event_id == ev.id,
+                    models.Registration.status.in_(("pending", "confirmed")))
+            .all())
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["name", "distance", "km_done", "phone", "address",
+                "payment", "reference"])
+    for r in regs:
+        p = _progress(db, r)
+        if not p["certificate_ready"]:
+            continue
+        w.writerow([
+            (r.user.display_name or r.user.username) if r.user else "",
+            r.race.name if r.race else "",
+            f"{p['done_km']:g}",
+            r.ship_phone or (r.user.phone if r.user else "") or "",
+            (r.ship_address or "").replace("\n", ", "),
+            r.payment_status or "unpaid",
+            r.payment_ref or "",
+        ])
+    return Response(
+        content=out.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{ev.code}-shipping.csv"',
+                 "Cache-Control": "no-store"},
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1769,7 +2337,8 @@ def add_race(code: str, payload: schemas.RaceIn, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/races/{race_id}", response_model=schemas.RaceOut, dependencies=ADMIN)
-def update_race(race_id: int, payload: schemas.RaceIn, db: Session = Depends(get_db)):
+def update_race(race_id: int, payload: schemas.RacePatch,
+                db: Session = Depends(get_db)):
     race = db.get(Race, race_id)
     if not race:
         raise HTTPException(404, f"No race with id {race_id}")

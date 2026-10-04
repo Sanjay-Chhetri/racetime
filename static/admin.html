@@ -77,6 +77,9 @@
     <button class="tab" role="tab" data-tab="entries" id="tab-entries"
             aria-controls="panel-entries">Entries
       <span class="tab-n" id="nEntries"></span></button>
+    <button class="tab" role="tab" data-tab="virtual" id="tab-virtual"
+            aria-controls="panel-virtual">Virtual
+      <span class="tab-n" id="nVirtual"></span></button>
     <button class="tab" role="tab" data-tab="workshops" id="tab-workshops"
             aria-controls="panel-workshops">Workshops
       <span class="tab-n" id="nWorkshops"></span></button>
@@ -520,6 +523,76 @@
       <th>Status</th><th class="num">Bib</th><th></th>
     </tr></thead><tbody id="entryList"></tbody></table>
     <p class="fieldErr" id="entryErr" hidden></p>
+  </section>
+
+  <section class="panel noprint tabpanel" role="tabpanel" hidden
+           id="panel-virtual" data-tab="virtual" aria-labelledby="tab-virtual">
+    <p class="note">A virtual race is run wherever each person happens to be,
+    inside a window, and they send you a photo of the result. Everything else
+    about this race still works the same way &mdash; the distances are the
+    races you have already added, and the entries arrive in the Entries
+    tab.</p>
+
+    <label class="check"><input type="checkbox" id="vrOn">
+      This is a virtual race</label>
+
+    <div id="vrBody" hidden>
+      <div class="row">
+        <div><label for="vrEnds">The window closes</label>
+          <input id="vrEnds" type="datetime-local"></div>
+        <div><p class="note tight" id="vrOpens"></p></div>
+      </div>
+
+      <h3>What each distance costs</h3>
+      <p class="note tight">In rupees. Leave a distance at 0 and it is free.
+      A price change never alters what somebody who has already entered
+      owes.</p>
+      <table class="roster"><thead><tr>
+        <th>Distance</th><th class="num">km</th><th class="num">Price &#8377;</th>
+      </tr></thead><tbody id="vrPrices"></tbody></table>
+
+      <h3>How people pay you</h3>
+      <p class="note tight">RaceTime never touches the money and holds no bank
+      or card details. People pay you directly by UPI and type in the
+      reference; you check it against your own account and tick it off.</p>
+      <div class="row">
+        <div><label for="vrUpi">Your UPI id</label>
+          <input id="vrUpi" placeholder="yourname@bank" autocomplete="off"></div>
+        <div><label for="vrUpiName">Name it shows</label>
+          <input id="vrUpiName" placeholder="Kalimpong Runners"></div>
+      </div>
+      <label for="vrNote">Anything to tell them when paying
+        <span class="opt">optional</span></label>
+      <input id="vrNote" placeholder="Put your name in the payment note">
+
+      <label for="vrQr">Your UPI QR code <span class="opt">optional</span></label>
+      <input id="vrQr" type="file" accept="image/*">
+      <p class="note tight">Upload the QR your own bank app gives you &mdash;
+      the one you have already tested. Entrants see it only after they
+      enter.</p>
+      <div id="vrQrPreview" hidden>
+        <img id="vrQrImg" alt="The payment QR code as entrants see it"
+             style="max-width:11rem;background:#fff;padding:.4rem;border-radius:6px">
+        <div><button id="vrQrClear" class="quiet danger">Remove the QR</button></div>
+      </div>
+
+      <p class="fieldErr" id="vrErr" hidden></p>
+      <button id="vrSave" class="primary">Save virtual settings</button>
+
+      <h3>Runs to look at <span class="tab-n" id="nFlagged"></span></h3>
+      <p class="note tight">Every run counts as soon as it is sent. These are
+      the ones worth a second look &mdash; no screenshot, a pace nobody holds,
+      or the same run twice. Clearing one keeps it; rejecting takes the
+      distance back off their total.</p>
+      <label class="check"><input type="checkbox" id="vrAllRuns">
+        Show every run, not only the queried ones</label>
+      <div id="vrRuns"></div>
+
+      <h3>Posting medals</h3>
+      <p class="note tight">Addresses for the people who have finished and
+      settled up. Nobody else is on it.</p>
+      <button id="vrCsv">Download the address list</button>
+    </div>
   </section>
 
   <section id="bibSheet" hidden>

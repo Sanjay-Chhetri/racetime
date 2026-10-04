@@ -31,6 +31,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Runner accounts](#runner-accounts)
 - [Member profiles](#member-profiles)
 - [Upcoming races and entries](#upcoming-races-and-entries)
+- [Virtual races](#virtual-races)
 - [Workshops](#workshops)
 - [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
@@ -257,6 +258,72 @@ entries open, so you can walk the whole path — enter, confirm, print a bib,
 scan it, see the result, collect the certificate — before a real race depends
 on it. Delete it when you are done; it does not come back. `RACETIME_NO_DEMO=1`
 skips it.
+
+## Virtual races
+
+A race nobody travels to. You announce the distances and the prices, people run
+them wherever they are inside a window, and send you a photo of their watch.
+Nothing else about the race changes — the same listing, the same entries, the
+same certificate.
+
+Set one up like any other race, then open the **Virtual** tab:
+
+| Field | What it does |
+|---|---|
+| This is a virtual race | Turns the rest on |
+| The window closes | It opens on the date under "When and where" |
+| Price per distance | In rupees, one per distance, yours to set. 0 is free |
+| Your UPI id and name | What entrants are told to pay |
+| Your UPI QR code | Upload the one your own bank app gives you |
+
+**There is no payment gateway and the app holds no bank or card details.**
+People pay you directly by UPI and type in the reference number their app gave
+them. You check it against your own account and tick it off. The QR and your
+UPI id are only shown to people who have already entered.
+
+Entrants see the price on the distance before they enter, and are asked for a
+postal address — optional, only so you can post a medal, and only ever visible
+to you.
+
+### Logging runs
+
+Each runner gets their own page at `/virtual.html#<code>`: a progress bar, how
+to pay, and a form to log a run — how far, what day, how long (optional), what
+they tracked it with, and a photo or screenshot.
+
+**Every run counts the moment it is sent.** Making people wait for you before
+they can log the next one is how a virtual race goes unfinished. Runs that look
+odd are **flagged and still counted**, so you review a short list instead of
+approving everything:
+
+- no screenshot
+- a pace over 22 km/h — quicker than the marathon world record
+- one run longer than the whole race
+- the same distance twice on the same day
+
+Runs that break a *rule* rather than looking odd are refused outright, with the
+reason: a date in the future, a date before the race opened, or a distance over
+500 km.
+
+In the **Virtual** tab you see the flagged ones with their screenshots. Count it
+and the flag clears; reject it and the distance comes off their total. The
+submission is kept either way, so you can change your mind when somebody
+explains themselves.
+
+**Progress is added up from the runs every time it is asked for, never stored.**
+Reject a run two weeks later and every total is right immediately.
+
+### Finishing
+
+When somebody has covered the distance *and* their entry is paid for (or
+waived, or free), their certificate appears on their own page — the same card
+as the finisher certificate, saying **Virtual race** and carrying the distance,
+with no time and no placing, because everybody ran their own course.
+
+Then download the address list from the Virtual tab to post the medals. It has
+only the people who finished and settled up.
+
+---
 
 ## Workshops
 
@@ -550,7 +617,7 @@ python tools/rfid_bridge.py --event siliguri10k --checkpoint 2 --simulate
 ```
 backend/
   main.py         FastAPI app, every endpoint, automatic schema migrations
-  models.py       13 tables. `reads` is append-only
+  models.py       14 tables. `reads` and run submissions are the record
   schemas.py      Pydantic request/response models
   timing.py       Splits and rankings, computed on demand and never stored
   achievements.py Points and badges, derived from reads on every request
@@ -570,6 +637,7 @@ static/
   results.html      Public leaderboard
   certificate.html  Finisher certificate
   attended.html     Participation certificate for a workshop
+  virtual.html      A runner's own virtual race: pay, log runs, finish
   guide.html        Walk-through for a new official
   js/store.js       Offline queue (IndexedDB) and clock sync
   js/theme.js       The Himalayan wallpapers
@@ -614,6 +682,10 @@ you will actually touch:
 | 🔒 | `DELETE` | `/api/participants/{id}` | Remove a runner; their reads are kept |
 | 🔒 | `POST` | `/api/events/{code}/artwork` | Multipart image upload |
 | | `POST` | `/api/events/{code}/reads` | Batch ingest, idempotent — **public on purpose** |
+| 🔒 | `PATCH` | `/api/events/{code}/virtual` | Make a race virtual; set the window and UPI details |
+| 👤 | `POST` | `/api/registrations/{reg_id}/runs` | Log a run towards a virtual race |
+| 🔒 | `GET` | `/api/events/{code}/runs` | Submissions; `?status=flagged` to review |
+| 🔒 | `GET` | `/api/events/{code}/shipping.csv` | Addresses for posting medals |
 | 🔒 | `POST` | `/api/workshops` | Create a workshop |
 | 👤 | `POST` | `/api/workshops/{slug}/register` | Take a place, or join the waitlist |
 | 🔒 | `GET` | `/api/workshops/{slug}/registrations` | The register, for the day itself |
@@ -756,11 +828,12 @@ Also handled:
 
 ## Not built yet
 
-**SMS notifications** and **year-grouping** of events. **Payments are not built**
-and no money moves through the app. **Virtual races** are designed but not
-started. The question about what people would pay for has an endpoint and a
-table but nothing that asks it. None of these affect the data model, so all are
-additive.
+**SMS notifications** and **year-grouping** of events. There is **no payment
+gateway** and none planned: a virtual race entry is paid by UPI between two
+people, and the app records only the reference number. **Whether a medal was
+actually posted** is not tracked — the address list is a CSV and the rest is
+the post office. The question about what people would pay for has an endpoint
+and a table but nothing that asks it.
 
 Two gaps worth naming rather than leaving to be discovered:
 

@@ -191,7 +191,10 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
     }));
     ok(`Created “${created.name}”.`);
     await loadEventPicker(created.code);
-    load(created.code);
+    // Open it on Runners rather than wherever the operator happened to be.
+    // Creating a race from the account screen used to leave you on the account
+    // screen, which reads as if nothing happened.
+    load(created.code, 'runners');
   } catch (err) { $('err').textContent = err.message; }
 });
 
@@ -205,7 +208,7 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
 
 // Tabs that need a race open, and tabs that belong to the operator.
 const RACE_TABS = ['runners', 'entries', 'races', 'checkpoints',
-                   'artwork', 'reads'];
+                   'artwork', 'virtual', 'reads'];
 const OPS_TABS = ['members', 'workshops', 'analytics', 'messages', 'account'];
 const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
@@ -247,6 +250,7 @@ function showTab(name, { push = true } = {}) {
   if (name === 'messages') loadMessages();
   if (name === 'workshops') loadWorkshops();
   if (name === 'entries') loadEntries();
+  if (name === 'virtual') loadVirtual();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
 }
@@ -1110,17 +1114,46 @@ async function loadEntries() {
     const [tone, label] = ENTRY_TONE[r.status] || ['', r.status];
     const bibField = `<input class="num bibin" data-bibfor="${r.id}"
         value="${esc(r.bib || '')}" placeholder="bib" inputmode="numeric">`;
+    // A virtual entry has no bib and no start list; what an organiser needs to
+    // see instead is how far they have got and whether they have paid. Both
+    // ride in the cells that are already there rather than widening a table
+    // that an ordinary race would then carry two empty columns of.
+    const owes = (r.amount_paise || 0) > 0;
+    const PAY_TONE = {
+      unpaid: ['stop', 'Not paid'],
+      claimed: ['wait', 'Says paid'],
+      paid: ['go', 'Paid'],
+      waived: ['go', 'Waived'],
+    };
+    const [payTone, payLabel] = PAY_TONE[r.payment_status] || ['', r.payment_status];
     return `<tr>
       <td><strong>${esc(r.runner || r.username || '')}</strong>
-        <div class="note tight">${esc(r.username || '')}</div></td>
-      <td>${esc(r.race || '—')}</td>
+        <div class="note tight">${esc(r.username || '')}</div>
+        ${r.is_virtual && r.ship_address
+          ? `<div class="note tight">${esc(r.ship_address)}${
+              r.ship_phone ? ' \u00b7 ' + esc(r.ship_phone) : ''}</div>` : ''}</td>
+      <td>${esc(r.race || '—')}
+        ${r.is_virtual ? `<div class="note tight">${
+          r.done_km.toFixed(2)} / ${r.target_km} km${
+          r.runs_flagged ? ' \u00b7 ' + r.runs_flagged + ' queried' : ''}${
+          r.certificate_ready ? ' \u00b7 finished' : ''}</div>` : ''}</td>
       <td>${esc([r.category, r.gender].filter(Boolean).join(' · ') || '—')}</td>
       <td class="note tight">${esc(r.email || '')}<br>${esc(r.phone || '')}
         ${r.emergency_contact
           ? `<br><span class="tag">ICE: ${esc(r.emergency_contact)}</span>` : ''}</td>
-      <td><span class="tag ${tone}">${esc(label)}</span></td>
-      <td class="num">${r.status === 'confirmed' ? esc(r.bib || '') : bibField}</td>
+      <td><span class="tag ${tone}">${esc(label)}</span>
+        ${r.is_virtual && owes
+          ? `<div><span class="tag ${payTone}">${esc(payLabel)}</span></div>
+             ${r.payment_ref
+               ? `<div class="note tight">ref ${esc(r.payment_ref)}</div>` : ''}`
+          : r.is_virtual ? '<div class="note tight">free entry</div>' : ''}</td>
+      <td class="num">${r.is_virtual
+        ? '<span class="note tight">—</span>'
+        : (r.status === 'confirmed' ? esc(r.bib || '') : bibField)}</td>
       <td class="num">
+        ${r.is_virtual && owes && !['paid', 'waived'].includes(r.payment_status)
+          ? `<button class="quiet" data-paid="${r.id}">Mark paid</button>
+             <button class="quiet" data-waive="${r.id}">Waive</button>` : ''}
         ${r.status !== 'confirmed'
           ? `<button class="quiet" data-confirm="${r.id}">Confirm</button>` : ''}
         ${r.status === 'pending'
@@ -1145,6 +1178,9 @@ async function loadEntries() {
       const id = b.dataset.confirm;
       const field = tb.querySelector(`[data-bibfor="${id}"]`);
       const bib = field ? field.value.trim() : '';
+      // A virtual race has no start line to identify anybody at, so there is
+      // no bib to insist on.
+      if (!field) { decide(id, { status: 'confirmed' }); return; }
       if (!bib) {
         entryError('Type a bib number next to them first — confirming is what '
           + 'puts them on the start list.');
@@ -1152,6 +1188,28 @@ async function loadEntries() {
         return;
       }
       decide(id, { status: 'confirmed', bib });
+    };
+  });
+  const settle = async (id, payment_status) => {
+    entryError('');
+    try {
+      await api(`/registrations/${id}/payment`, json('PATCH', { payment_status }));
+      ok(payment_status === 'waived' ? 'Entry fee waived.' : 'Marked paid.');
+      loadEntries();
+    } catch (e) { entryError(e.message); }
+  };
+  tb.querySelectorAll('[data-paid]').forEach(b => {
+    b.onclick = () => settle(b.dataset.paid, 'paid');
+  });
+  tb.querySelectorAll('[data-waive]').forEach(b => {
+    b.onclick = async () => {
+      if (!await confirmDialog({
+        title: 'Waive this entry fee?',
+        body: 'They owe nothing and can have their certificate as soon as they '
+            + 'finish the distance.',
+        confirm: 'Waive',
+      })) return;
+      settle(b.dataset.waive, 'waived');
     };
   });
   tb.querySelectorAll('[data-reject]').forEach(b => {
@@ -1636,4 +1694,229 @@ window.addEventListener('hashchange', () => {
   }
   if (!ev || ev.code !== now.code) { load(now.code, now.tab); return; }
   if (now.tab && now.tab !== tab) showTab(now.tab, { push: false });
+});
+
+
+/* ---------- virtual races ----------
+
+   An event with a flag, not a second kind of thing. The settings live here
+   because they are about how the race is run and paid for; the distances and
+   their prices are the races already added under Races. */
+
+let vrSetup = null;
+let vrRuns = [];
+
+const vrError = (m, quiet = false) => {
+  $('vrErr').textContent = m || '';
+  $('vrErr').hidden = !m;
+  $('vrErr').classList.toggle('note', quiet);
+};
+
+/* The window uses the same `toLocalInput` the schedule panel does: a
+   datetime-local box speaks local wall time with no zone and the API speaks
+   UTC, and a second copy of that conversion is a second place to get it
+   wrong. Declaring one here shadowed nothing -- it was a duplicate `const` in
+   the same module scope, which is a SyntaxError, and it took the entire admin
+   screen down until the browser suite caught it. */
+
+const RUN_FLAG_WORDS = {
+  'no-evidence': 'no screenshot',
+  'fast': 'pace nobody holds',
+  'long': 'longer than the whole race',
+  'duplicate': 'same run twice?',
+};
+
+async function loadVirtual() {
+  if (!ev) return;
+  vrError('');
+  try {
+    vrSetup = await api(`/events/${ev.code}/virtual`);
+  } catch (e) { vrError(e.message); return; }
+
+  $('vrOn').checked = !!vrSetup.is_virtual;
+  $('vrBody').hidden = !vrSetup.is_virtual;
+  $('nVirtual').textContent = vrSetup.is_virtual ? '\u2713' : '';
+  $('vrEnds').value = toLocalInput(vrSetup.ends_at);
+  $('vrOpens').textContent = vrSetup.starts_at
+    ? 'It opens on ' + new Date(vrSetup.starts_at).toLocaleString()
+      + ', which is the date under "When and where".'
+    : 'Set the opening date under "When and where" first \u2014 runs before it '
+      + 'are refused, and with no date nothing is.';
+  $('vrUpi').value = vrSetup.upi_id || '';
+  $('vrUpiName').value = vrSetup.upi_name || '';
+  $('vrNote').value = vrSetup.payment_note || '';
+  $('vrQrPreview').hidden = !vrSetup.payment_qr_url;
+  if (vrSetup.payment_qr_url) $('vrQrImg').src = vrSetup.payment_qr_url;
+
+  $('vrPrices').innerHTML = (vrSetup.races || []).length
+    ? vrSetup.races.map(r => `<tr>
+        <td>${esc(r.name)}</td>
+        <td class="num">${r.distance_km}</td>
+        <td class="num"><input class="num" data-price="${r.id}" type="number"
+            min="0" step="1" inputmode="numeric"
+            value="${(r.price_paise || 0) / 100}"></td>
+      </tr>`).join('')
+    : '<tr><td class="empty">Add the distances under Races first.</td></tr>';
+
+  await loadVirtualRuns();
+}
+
+async function loadVirtualRuns() {
+  const all = $('vrAllRuns').checked;
+  try {
+    vrRuns = await api(`/events/${ev.code}/runs`
+      + (all ? '' : '?status=flagged'));
+  } catch (e) { vrError(e.message); return; }
+  $('nFlagged').textContent =
+    (all ? vrRuns.filter(r => r.status === 'flagged') : vrRuns).length || '';
+
+  if (!vrRuns.length) {
+    $('vrRuns').innerHTML =
+      '<div class="empty"><div class="t">'
+      + (all ? 'No runs logged yet' : 'Nothing to look at')
+      + '</div><div class="h">'
+      + (all ? 'They appear as people send them in.'
+             : 'Every run so far looked fine.')
+      + '</div></div>';
+    return;
+  }
+
+  $('vrRuns').innerHTML = vrRuns.map(r => {
+    const why = (r.flags || []).map(f => RUN_FLAG_WORDS[f] || f).join(', ');
+    const tag = r.status === 'rejected'
+      ? '<span class="tag no">Rejected</span>'
+      : r.status === 'flagged'
+        ? '<span class="tag wait">Queried</span>'
+        : '<span class="tag go">Counted</span>';
+    return `<article class="runrow">
+      <div class="runmain">
+        <div class="runkm">${r.distance_km} km</div>
+        <div>
+          <div class="runwhen">${esc(r.runner || '')}</div>
+          <div class="note tight">${esc(r.ran_on)}${
+            r.duration_seconds ? ' \u00b7 ' + Math.round(r.duration_seconds / 60)
+              + ' min' : ' \u00b7 no time'}${
+            r.note ? ' \u00b7 ' + r.note : ''}</div>
+          ${why ? `<div class="note tight">Queried: ${esc(why)}</div>` : ''}
+        </div>
+      </div>
+      <div class="runacts">
+        ${tag}
+        ${r.evidence_url
+          ? `<a href="${esc(r.evidence_url)}" target="_blank"
+                rel="noopener noreferrer">Screenshot</a>`
+          : '<span class="note tight">no screenshot</span>'}
+        ${r.status !== 'accepted'
+          ? `<button class="quiet" data-ok="${r.id}">Count it</button>` : ''}
+        ${r.status !== 'rejected'
+          ? `<button class="quiet danger" data-no="${r.id}">Reject</button>` : ''}
+      </div>
+    </article>`;
+  }).join('');
+
+  const decide = async (id, status) => {
+    vrError('');
+    try {
+      await api(`/runs/${id}`, json('PATCH', { status }));
+      ok(status === 'rejected'
+        ? 'Rejected. It comes off their total.'
+        : 'Counted.');
+      await loadVirtualRuns();
+      if (tab === 'entries') loadEntries();
+    } catch (e) { vrError(e.message); }
+  };
+  $('vrRuns').querySelectorAll('[data-ok]').forEach(b => {
+    b.onclick = () => decide(b.dataset.ok, 'accepted');
+  });
+  $('vrRuns').querySelectorAll('[data-no]').forEach(b => {
+    b.onclick = async () => {
+      if (!await confirmDialog({
+        title: 'Reject this run?',
+        body: 'The distance comes off their total. The submission is kept, so '
+            + 'you can count it later if they explain it.',
+        confirm: 'Reject',
+      })) return;
+      decide(b.dataset.no, 'rejected');
+    };
+  });
+}
+
+$('vrAllRuns').onchange = () => loadVirtualRuns();
+
+$('vrOn').onchange = async () => {
+  vrError('');
+  try {
+    vrSetup = await api(`/events/${ev.code}/virtual`,
+                        json('PATCH', { is_virtual: $('vrOn').checked }));
+    ok($('vrOn').checked
+      ? 'This is a virtual race now. Set the window and the prices.'
+      : 'Back to an ordinary race.');
+    loadVirtual();
+  } catch (e) {
+    // The server refuses to un-virtual a race people have entered, so put the
+    // tick back where it was rather than leaving the screen lying.
+    $('vrOn').checked = !!(vrSetup && vrSetup.is_virtual);
+    vrError(e.message);
+  }
+};
+
+$('vrSave').onclick = e => withBusy(e.currentTarget, async () => {
+  vrError('');
+  try {
+    if ($('vrQr').files[0]) {
+      const fd = new FormData();
+      fd.append('file', await fitImageForUpload($('vrQr').files[0],
+                                                m => vrError(m, true)));
+      await api(`/events/${ev.code}/payment-qr`, { method: 'POST', body: fd });
+      $('vrQr').value = '';
+    }
+    // Prices belong to the races, so they are saved as races -- and only the
+    // ones that actually changed, so a stray enter does not rewrite them all.
+    for (const input of document.querySelectorAll('[data-price]')) {
+      const race = (vrSetup.races || [])
+        .find(r => String(r.id) === input.dataset.price);
+      const paise = Math.round(Number(input.value || 0) * 100);
+      if (!race || paise === (race.price_paise || 0)) continue;
+      if (paise < 0) { vrError('A price cannot be negative.'); return; }
+      await api(`/races/${race.id}`, json('PATCH', { price_paise: paise }));
+    }
+    vrSetup = await api(`/events/${ev.code}/virtual`, json('PATCH', {
+      ends_at: $('vrEnds').value
+        ? new Date($('vrEnds').value).toISOString() : null,
+      upi_id: $('vrUpi').value.trim() || null,
+      upi_name: $('vrUpiName').value.trim() || null,
+      payment_note: $('vrNote').value.trim() || null,
+    }));
+    await load(ev.code);        // the races carry new prices now
+    showTab('virtual', { push: false });
+    ok('Virtual settings saved.');
+  } catch (err) { vrError(err.message); }
+});
+
+$('vrQrClear').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Remove the payment QR?',
+    body: 'Entrants will see your UPI id but have nothing to scan.',
+    confirm: 'Remove',
+  })) return;
+  try {
+    await api(`/events/${ev.code}/payment-qr`, { method: 'DELETE' });
+    ok('QR removed.');
+    loadVirtual();
+  } catch (e) { vrError(e.message); }
+};
+
+$('vrCsv').onclick = e => withBusy(e.currentTarget, async () => {
+  vrError('');
+  try {
+    const res = await fetch(`/api/events/${ev.code}/shipping.csv`);
+    if (!res.ok) throw new Error('That list could not be downloaded.');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${ev.code}-shipping.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    ok('Downloaded.');
+  } catch (err) { vrError(err.message); }
 });

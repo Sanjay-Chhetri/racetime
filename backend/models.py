@@ -10,8 +10,8 @@ still there.
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String,
-    UniqueConstraint, Index,
+    Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
+    String, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import relationship
 
@@ -91,6 +91,28 @@ class Event(Base):
     photo_type = Column(String(32), nullable=True)
     photo_credit = Column(String(120), nullable=True)
 
+    # --- a virtual race ---
+    # A race nobody travels to: entrants run the distance where they live,
+    # inside a window, and send evidence of each run. It is a flag on an event
+    # rather than a second kind of thing because everything else still applies
+    # -- a name, a photograph, distances, entries, a certificate at the end.
+    is_virtual = Column(Boolean, nullable=False, default=False)
+    # `starts_at` opens the window; this closes it. Useful to any event, but a
+    # virtual race is the first one that cannot work without it: "run 50K in
+    # October" is a start and an end, not a morning.
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Paid by scanning the organiser's own UPI QR code. There is no gateway and
+    # no card data anywhere near this app: the money moves between two UPI
+    # accounts and all RaceTime holds is the reference number the payer reports,
+    # which is what lets the organiser find it in their own statement.
+    upi_id = Column(String(120), nullable=True)
+    upi_name = Column(String(120), nullable=True)
+    payment_note = Column(String(400), nullable=True)
+    payment_qr_url = Column(String(255), nullable=True)
+    payment_qr_blob = Column(LargeBinary, nullable=True)
+    payment_qr_type = Column(String(32), nullable=True)
+
     races = relationship(
         "Race", back_populates="event",
         cascade="all, delete-orphan", order_by="Race.sequence",
@@ -119,6 +141,11 @@ class Race(Base):
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(80), nullable=False)
     distance_km = Column(Float, nullable=False, default=0.0)
+    # What this distance costs, in paise. Per race rather than per event
+    # because the price is the organiser's to set: one event may charge the
+    # same for 25K and 100K, another may not, and neither is the app's
+    # business. Zero means free, which is every race today.
+    price_paise = Column(Integer, nullable=False, default=0)
     # Null means "use the event's gun". Set it for a staggered start, where the
     # 5K goes off half an hour after the 10K.
     start_time = Column(DateTime(timezone=True), nullable=True)
@@ -407,14 +434,88 @@ class Registration(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     decided_at = Column(DateTime(timezone=True), nullable=True)
 
+    # --- money, for an event that charges ---
+    # unpaid -> claimed (the entrant says they have sent it, with a reference)
+    #        -> paid (an organiser has found it in their account) | waived
+    # Nothing here is a proof of payment. The organiser's own bank statement is
+    # the proof; this is the paper trail that helps them look.
+    payment_status = Column(String(10), nullable=False, default="unpaid")
+    # Taken from the race price when the entry is made, not read back later. A
+    # price that goes up next week must not change what somebody already owes.
+    amount_paise = Column(Integer, nullable=False, default=0)
+    payment_ref = Column(String(60), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Where to post a medal, asked only by a virtual race and shown only to an
+    # operator. A home address is the most sensitive thing this app holds, so
+    # it never reaches a public response, a profile or a results page.
+    ship_address = Column(String(400), nullable=True)
+    ship_phone = Column(String(32), nullable=True)
+
     event = relationship("Event")
     race = relationship("Race")
     user = relationship("User")
+    runs = relationship(
+        "RunSubmission", back_populates="registration",
+        cascade="all, delete-orphan", order_by="RunSubmission.ran_on")
 
     __table_args__ = (
         # One entry per person per event. Changing your mind edits the row.
         UniqueConstraint("event_id", "user_id", name="uq_registration_person"),
     )
+
+
+class RunSubmission(Base):
+    """One run somebody did on their own, offered towards a virtual race.
+
+    Accepted on arrival. A virtual race that makes people wait for a human
+    before logging the next run is a virtual race nobody finishes, and the
+    whole point of the evidence is that it can be looked at afterwards.
+    Implausible submissions are **flagged and still counted**, so the organiser
+    reviews a short list instead of approving everything.
+
+    Like a `Read`, a submission is a record of something that happened, and
+    progress is **summed from these on request and never stored**. Rejecting a
+    run changes a status; it never needs the total to be recalculated and
+    written back.
+    """
+    __tablename__ = "run_submissions"
+
+    id = Column(Integer, primary_key=True)
+    registration_id = Column(Integer,
+                             ForeignKey("registrations.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    distance_km = Column(Float, nullable=False)
+    # The day of the run, not a timestamp: a screenshot shows a date, and a
+    # date has no timezone to get wrong.
+    ran_on = Column(Date, nullable=False)
+    # Optional. Plenty of people walk a distance and do not time it, and a
+    # virtual race is not ranked.
+    duration_seconds = Column(Integer, nullable=True)
+    # app | watch | treadmill | other -- what they tracked it with.
+    source = Column(String(12), nullable=False, default="app")
+    note = Column(String(400), nullable=True)
+
+    # A photograph or a screenshot of the watch, app or treadmill display.
+    # Private: it is somebody's movements, and often their location.
+    evidence_url = Column(String(255), nullable=True)
+    evidence_blob = Column(LargeBinary, nullable=True)
+    evidence_type = Column(String(32), nullable=True)
+
+    # accepted | flagged | rejected. Accepted and flagged both count towards
+    # the distance; only a rejection takes a run out.
+    status = Column(String(10), nullable=False, default="accepted")
+    # Why it was flagged, comma separated, machine written: no-evidence,
+    # no-time, fast, long, duplicate.
+    flags = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+    registration = relationship("Registration", back_populates="runs")
+
+    @property
+    def counts(self) -> bool:
+        return self.status in ("accepted", "flagged")
 
 
 class Message(Base):

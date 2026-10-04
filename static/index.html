@@ -156,10 +156,24 @@
       <div><label for="enGender">Gender <span class="opt">optional</span></label>
         <input id="enGender" autocapitalize="words" placeholder="Men"></div>
     </div>
-    <label for="enEmergency">Emergency contact</label>
-    <input id="enEmergency" placeholder="Name and phone number">
-    <p class="note tight">A name and number to ring if you do not come back.
-    Hill races ask for this, and it is the only reason it is kept.</p>
+    <p class="note tight" id="enPrice" hidden></p>
+    <div id="enEmergencyWrap">
+      <label for="enEmergency">Emergency contact</label>
+      <input id="enEmergency" placeholder="Name and phone number">
+      <p class="note tight">A name and number to ring if you do not come back.
+      Hill races ask for this, and it is the only reason it is kept.</p>
+    </div>
+    <div id="enVirtual" hidden>
+      <label for="enAddress">Where to post a medal
+        <span class="opt">optional</span></label>
+      <textarea id="enAddress" rows="2"
+                placeholder="House, road, town, district, PIN"></textarea>
+      <label for="enPhone">Phone for the parcel
+        <span class="opt">optional</span></label>
+      <input id="enPhone" placeholder="9800000000">
+      <p class="note tight">Only the organiser sees these, and only to send you
+      something. Leave them blank if you do not want a medal posted.</p>
+    </div>
     <label for="enNote">Anything the organiser should know <span class="opt">optional</span></label>
     <textarea id="enNote" rows="2"></textarea>
     <p class="fieldErr" id="enErr" hidden></p>

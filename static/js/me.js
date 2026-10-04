@@ -5,7 +5,7 @@
    corrected scan changes a total the next time this loads rather than leaving
    a points table quietly disagreeing with the results it came from. */
 
-import { esc, ok, fail, withBusy, fitImageForUpload } from '/js/ui.js';
+import { esc, ok, fail, withBusy, fitImageForUpload, money } from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -211,17 +211,39 @@ async function loadEntries() {
 
   $('entryList').innerHTML = rows.map(r => {
     const [tone, label] = ENTRY_TONE[r.status] || ['', r.status];
+    // A virtual entry is not waiting for an organiser to do anything -- it is
+    // waiting for the runner to go out and run -- so the card shows how far
+    // they have got and leads to the page where they log it.
+    const live = r.status === 'pending' || r.status === 'confirmed';
+    const pct = r.target_km
+      ? Math.min(100, (r.done_km / r.target_km) * 100) : 0;
+    const owes = (r.amount_paise || 0) > 0
+      && !['paid', 'waived'].includes(r.payment_status);
     return `<article class="runcard">
       <div class="runhead">
         <div>
           <h3>${esc(r.event_name)}</h3>
           <p class="note">${esc([r.race, r.category].filter(Boolean).join(' · '))}</p>
         </div>
-        <span class="tag ${tone}">${esc(label)}</span>
+        ${r.is_virtual && live
+          ? `<span class="tag ${r.complete ? 'go' : 'virtual'}">${
+              r.complete ? 'Distance done' : 'Virtual race'}</span>`
+          : `<span class="tag ${tone}">${esc(label)}</span>`}
       </div>
+      ${r.is_virtual && live ? `
+        <div class="bar"><div class="bar-fill${r.complete ? ' full' : ''}"
+             style="width:${pct.toFixed(1)}%"></div></div>
+        <p class="note tight">${r.done_km.toFixed(2)} of ${r.target_km} km${
+          owes ? ' \u00b7 ' + money(r.amount_paise) + ' to pay' : ''}${
+          r.certificate_ready ? ' \u00b7 certificate ready' : ''}</p>` : ''}
       <div class="runacts">
         ${r.bib ? `<span class="tag">Bib ${esc(r.bib)}</span>` : ''}
-        ${(r.status === 'pending' || r.status === 'confirmed')
+        ${r.is_virtual && live
+          ? `<a class="button primary"
+                href="/virtual.html#${encodeURIComponent(r.event_code)}">${
+               r.certificate_ready ? 'Get your certificate' : 'Log a run'}</a>`
+          : ''}
+        ${live
           ? `<button class="quiet danger" data-withdraw="${r.id}">Withdraw</button>` : ''}
       </div>
     </article>`;

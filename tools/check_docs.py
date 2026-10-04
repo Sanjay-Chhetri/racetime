@@ -100,6 +100,9 @@ for phrase, why in [
     ("One shared admin token", "accounts and roles replaced it"),
     ("not named logins", "the logins are named now"),
     ("180 assertions", "the suites have grown"),
+    ("325 assertions", "the suites have grown again"),
+    ("Virtual races | Not built", "virtual races are built"),
+    ("13 tables", "the table count has changed"),
     ("Race photography | Not built", "races carry a photograph now"),
     ("10 tables", "the table count has changed"),
 ]:

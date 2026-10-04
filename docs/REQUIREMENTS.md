@@ -177,7 +177,25 @@ Asked **before** anything is for sale, which is the only point at which the
 answer means anything. Afterwards you are not asking what somebody wants; you
 are asking them to justify a decision already taken.
 
-### 3.13 Read — append-only
+### 3.13 RunSubmission
+
+One run somebody did on their own, offered towards a virtual race.
+
+| Field | Type | Notes |
+|---|---|---|
+| `registration_id` | FK | Which entry it counts towards |
+| `distance_km` | float | 0.1 to 500; outside that is a typo, not a run |
+| `ran_on` | date | **A date, not a timestamp.** A screenshot shows a day, and a day has no timezone to get wrong |
+| `duration_seconds` | int, nullable | Optional. Plenty of people walk a distance and do not time it |
+| `source` | `app` \| `watch` \| `treadmill` \| `other` | |
+| `evidence_blob`, `evidence_type` | | The photograph. **Private** — see FR-24.15 |
+| `status` | `accepted` \| `flagged` \| `rejected` | Accepted **and** flagged both count; only a rejection takes a run out |
+| `flags` | string, comma separated | `no-evidence`, `fast`, `long`, `duplicate` — machine written, shown to both sides |
+
+Like a `Read`, this is a record of something that happened, and **progress is
+summed from these on request and never stored**.
+
+### 3.14 Read — append-only
 
 One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
@@ -888,6 +906,79 @@ somebody who comes back.
 - **FR-23.4** It will not be a condition of anything. Skipping it must block no
   screen.
 
+### FR-24 — Virtual races
+
+A race nobody travels to. The organiser announces distances and prices, people
+run them wherever they are inside a window, and send a photograph of the watch.
+
+**It is a flag on an event, not a second kind of thing.** `Event.is_virtual`,
+with the distances as `Race` rows and the entries as `Registration` rows, so
+the listing, the entry form, the admin screens and the certificate already
+work. A parallel "virtual event" model would have doubled all of them.
+
+- **FR-24.1** **The distances and the prices belong to the organiser**, set per
+  race (`Race.price_paise`), not chosen by the app. One event may charge the
+  same for 25K and 100K and another may not; neither is RaceTime's business.
+- **FR-24.2** The window is `starts_at` to `ends_at`. Entering after it closes
+  is refused whatever the entries switch says — there is no longer any time in
+  which to run it.
+- **FR-24.3** **The price is snapshotted onto the entry** when somebody enters
+  (`Registration.amount_paise`). A price that goes up next week does not change
+  what an existing entrant owes.
+- **FR-24.4** Money is held in **paise, as integers**. A hundred entries priced
+  in floating-point rupees end up short.
+- **FR-24.5** **No payment gateway and no card or bank details.** People pay
+  the organiser directly by UPI, by scanning a QR the organiser uploaded
+  themselves. The app records the reference number the payer reports; the
+  organiser's own statement is the proof.
+- **FR-24.6** `unpaid → claimed → paid | waived`. **An entrant can claim, never
+  confirm** — a self-service "I have paid" button that counted is an honour
+  system with a spreadsheet attached. Only an operator sets `paid` or `waived`.
+- **FR-24.7** **The UPI handle and the QR reach somebody who has entered, and
+  operators. Nobody else.** They are not on the public event response, not on
+  the listing, and not on an open image URL. A collection handle on an open
+  page is an invitation to print your own version of the race.
+- **FR-24.8** A run carries a distance, a date, an optional time, what it was
+  tracked with, and a photograph or screenshot.
+- **FR-24.9** **Runs are accepted on arrival.** A virtual race that makes
+  people wait for a human before logging the next run is one nobody finishes.
+- **FR-24.10** Implausible runs are **flagged and still counted**: no
+  screenshot, a pace over 22 km/h (faster than the marathon world record), a
+  single run longer than the whole race, or the same distance twice on one day.
+  The runner is told which, so they can fix a typo themselves.
+- **FR-24.11** **The window and the calendar refuse rather than flag.** A run
+  dated tomorrow, or before the race opened, or over 500 km, is `422` with the
+  reason. Those are rules, not judgements.
+- **FR-24.12** **Progress is summed from the submissions on every request and
+  never stored** — the same rule as results. Rejecting a run two weeks later
+  changes a status, and the next read gives the new answer; there is nothing to
+  recalculate and nothing that can disagree with the evidence.
+- **FR-24.13** An organiser may clear a flag or reject a run. **A rejected run
+  keeps its row.** A race that deletes somebody's evidence cannot answer a
+  question about it afterwards.
+- **FR-24.14** A runner may delete their own submission, because the usual
+  reason is typing 50 for 5. An operator may delete any.
+- **FR-24.15** **The evidence is private** to the runner and the operators. It
+  is a picture of where somebody was and when, often with the road outside
+  their house on it. Results are public; this is not.
+- **FR-24.16** A certificate needs **the distance done *and* the entry
+  settled**. A free race needs only the distance.
+- **FR-24.17** **No bib and no start list.** Confirming a virtual entry needs
+  no bib and creates no `Participant`, because there is no start line at which
+  to identify anybody.
+- **FR-24.18** A postal address is asked for **only by a virtual race, only to
+  post a medal, and is optional**. It reaches operators and nobody else: not a
+  profile, not a public event, not a results page.
+- **FR-24.19** `GET /api/events/{code}/shipping.csv` lists **only finishers who
+  have settled**. A list of everybody who entered is a list of parcels nobody
+  owes.
+- **FR-24.20** An event with live entries **cannot have the virtual flag turned
+  off** — `409`, with the instruction to close entries instead.
+- **FR-24.21** The runner's own page is `/virtual.html#<code>`: progress, how
+  to pay, a form to log a run, the runs so far, and the certificate when it is
+  due. The card says **Virtual race** and carries the distance — **no time and
+  no placing**, because everybody ran their own course.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -1019,6 +1110,27 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `PATCH` | `/api/workshop-registrations/{reg_id}` | Mark present or absent; timestamped |
 | | `POST` | `/api/interest` | What somebody would pay for; no account needed |
 
+### Virtual races
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `GET` | `/api/events/{code}/virtual` | The virtual settings, including how to pay — **not** part of the public event |
+| 🔒 | `PATCH` | `/api/events/{code}/virtual` | Make it virtual, set the window and the UPI details |
+| 🔒 | `POST` | `/api/events/{code}/payment-qr` | Upload the organiser's own UPI QR image |
+| 👤 | `GET` | `/api/events/{code}/payment-qr` | The QR, to somebody who has entered, or an operator |
+| 🔒 | `DELETE` | `/api/events/{code}/payment-qr` | Remove it |
+| 🔒 | `PATCH` | `/api/races/{race_id}` | Also sets `price_paise` — the price per distance |
+| 👤 | `GET` | `/api/registrations/{reg_id}/payment` | What this entrant owes and where to send it |
+| 👤 | `POST` | `/api/registrations/{reg_id}/payment` | The entrant reports a reference number |
+| 🔒 | `PATCH` | `/api/registrations/{reg_id}/payment` | The organiser marks it paid, or waives it |
+| 👤 | `POST` | `/api/registrations/{reg_id}/runs` | Log one run; multipart, with the screenshot |
+| 👤 | `GET` | `/api/registrations/{reg_id}/runs` | The runs on this entry |
+| 👤 | `GET` | `/api/runs/{run_id}/evidence` | The screenshot. The runner and operators, nobody else |
+| 👤 | `DELETE` | `/api/runs/{run_id}` | A runner removing their own mistake |
+| 🔒 | `PATCH` | `/api/runs/{run_id}` | Clear a flag, or reject a run |
+| 🔒 | `GET` | `/api/events/{code}/runs` | Every submission; `?status=flagged` to review |
+| 🔒 | `GET` | `/api/events/{code}/shipping.csv` | Addresses for posting medals, finishers only |
+
 ### Messages
 
 | | Method | Path | Purpose |
@@ -1056,6 +1168,7 @@ the role. Interactive docs at `/docs` while the server runs.
 | Finisher card | `/certificate.html#<code>/<bib>` | Runner | no |
 | My running | `/me.html` | Runner | yes |
 | Participation certificate | `/attended.html#<slug>` | Somebody marked present | yes |
+| My virtual race | `/virtual.html#<code>` | Somebody who has entered it | yes |
 | Runner profile | `/r/<slug>` (serves `/profile.html`) | Public, members or nobody | no |
 | How your details are used | `/privacy.html` | Anyone | no |
 | Create an account | `/signup.html` | Runner | no |
@@ -1162,8 +1275,8 @@ in Kalimpong; not for two.
 
 | Area | Status |
 |---|---|
-| Payments | Not built. No money moves through the app. Workshop prices are held in paise and are all zero |
-| Virtual races | Not built. Designed, not started |
+| Payment gateway | Not built, and not planned for now. Virtual race entries are paid by UPI QR between two people; the app records a reference number and no card or bank details (FR-24.5) |
+| Shipping status | Not built. The address list is a CSV; whether a medal was posted is not tracked |
 | Strava / GPS import | Not built. Evidence would be a photograph or a screenshot |
 | The interest question | Half built — endpoint and table exist, nothing asks it |
 | Per-event roles | Not built. A role applies to every race, see [9.7](#97-no-audit-of-who-changed-what) |
@@ -1187,10 +1300,12 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **325 assertions** — 230 against the API, 95 driving a real
+carry **507 assertions** — 299 against the API, 208 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
-will lie to you on the second.
+will lie to you on the second. Three suites had to be mended to earn that
+second run: one read a database nobody was writing to, one assumed the first
+race in a list was its own, and one assumed a password another suite rotates.
 
 | Area | Method | Result |
 |---|---|---|
@@ -1222,6 +1337,13 @@ will lie to you on the second.
 | | deletion | a workshop somebody attended refuses `409` and says to unpublish instead; an empty one deletes |
 | **Workshops in the browser** | Chromium, 23 checks | the listing, the register, the waitlist notice, and the participation certificate exported at 1080 × 1350 |
 | | a certificate before attendance is marked | not rendered; the page says it appears once an organiser marks them present |
+| **Virtual races** | 91 checks over the API | the price is snapshotted at entry and does not follow a later rise; a claim is not a payment; the UPI handle and QR refuse the public and a signed-in non-entrant |
+| | run submissions | flagged for no screenshot, 60 km/h, a duplicate day; refused for a future date, a date before the window, 900 km |
+| | progress | summed from submissions; rejecting a run removes its distance on the next read |
+| | the certificate | released by distance **and** settlement; an unpaid finisher gets none until the fee is paid or waived |
+| | evidence and addresses | screenshot `403` to another runner and `401` to the public; the address list `403` to a runner and absent from every public response |
+| **Virtual races in the browser** | Chromium, 86 checks | organiser sets it up, runner enters, pays by reference, logs three runs, is queried on one, finishes, and the card renders 1080 × 1350 with no time on it |
+| | the public event response | checked field by field for a UPI handle after one was found on it |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through
@@ -1239,8 +1361,31 @@ migrations run before anything that reads the schema**, and a new column with
 `NULL` while the response model says otherwise. Testing only against a fresh
 database tests the one case production is never in.
 
+### Two that got through
+
+On 2026-10-05, building virtual races, two faults were caught by the suites
+rather than by reading:
+
+**The organiser's UPI handle was on a public response.** The payment settings
+were added to `EventOut` with a comment calling it operator-only. It is the
+response of `GET /api/events/{code}`, which is public. A schema shared between
+an open route and an admin screen will leak sooner or later, so the settings
+now have their own `VirtualSetupOut` on an operator-only route, and the suite
+asserts the public response carries no payment field at all.
+
+**A duplicate `const` took the whole admin screen down.** New code declared a
+`toLocalInput` that already existed in the module. `node --check` passed it;
+the browser refused the module outright, so race admin rendered nothing. The
+lesson is not about that helper: a syntax check that passes is not a page that
+loads, and only the browser suite knew the difference.
+
 ### Not verified
 
+- Whether a **real UPI QR** scans from the screen. The suites upload and serve
+  an image and check it renders; no phone has been pointed at it. Scan your own
+  before announcing a race.
+- **Nobody has run a virtual race end to end for real** — entering, paying,
+  logging runs over weeks, and being posted a medal.
 - The **printed** appearance of bibs and certificates on a real printer. Print
   one of each before committing to a run.
 - Real QR scanning through a phone camera. Headless Chromium has no camera, so

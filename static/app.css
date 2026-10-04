@@ -1923,3 +1923,86 @@ label.check input { width: auto; flex: none; margin: 0; }
   margin-top: 26px; max-width: 880px;
   text-shadow: 0 2px 18px rgba(0, 0, 0, .5);
 }
+
+/* ------------------------------------------------------------------
+   Virtual races
+   A race nobody travels to: a window, a distance, and runs logged one
+   at a time. The screen's job is to answer "how much is left" before
+   anything else, so the bar comes first and is the only thing on the
+   page sized like a headline.
+   ------------------------------------------------------------------ */
+
+.row.between { justify-content: space-between; align-items: center; }
+.row.between > * { flex: 0 0 auto; }
+
+.tag.virtual { background: rgba(94, 148, 214, .18); color: #9ec4f0; }
+.tag.no { background: rgba(221, 75, 57, .14); color: #ff8b7c; }
+
+.ok-note { color: #6fd3a0; }
+
+/* An anchor that has to look like a button, because it goes somewhere
+   rather than doing something. */
+a.button {
+  display: inline-block; text-decoration: none;
+  padding: .55rem .9rem; border-radius: 5px;
+  border: 1px solid transparent; background: var(--ink-3);
+  color: var(--text); font-weight: 600; font-size: .95rem;
+}
+a.button.primary { background: var(--paint); color: #1a1500; }
+a.button.primary:hover { background: #ffd719; }
+
+.bar {
+  height: 1.1rem; border-radius: 999px; overflow: hidden;
+  background: var(--ink-3); border: 1px solid var(--rule);
+  margin: .6rem 0 .5rem;
+}
+.bar-fill {
+  height: 100%; width: 0;
+  background: var(--paint);
+  border-radius: 999px;
+  transition: width .5s ease;
+}
+.bar-fill.full { background: #34a06b; }
+
+/* Paying: the QR beside the handle, because people use one or the other
+   and neither should be hunted for. */
+.paybox { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+.paybox .paywho { flex: 1 1 16rem; min-width: 0; }
+.payqr { flex: 0 0 auto; text-align: center; }
+.payqr img {
+  width: 10rem; height: 10rem; object-fit: contain;
+  background: #fff; padding: .4rem; border-radius: 6px;
+  border: 1px solid var(--rule);
+}
+
+.runrow {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: .75rem; flex-wrap: wrap;
+  padding: .7rem 0; border-bottom: 1px solid var(--rule);
+}
+.runrow:last-child { border-bottom: 0; }
+.runmain { display: flex; gap: .85rem; align-items: baseline; min-width: 0; }
+.runkm {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 1.6rem; line-height: 1;
+  white-space: nowrap;
+}
+.runwhen { font-weight: 600; }
+.runacts { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.runacts a { font-size: .9rem; }
+
+/* The distance, on the virtual certificate. There is no time to be the
+   hero on this card, so the distance is. */
+.share-card .big {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700; font-size: 190px; line-height: .95;
+  letter-spacing: -.02em;
+  margin: 10px 0 14px;
+  text-shadow: 0 4px 30px rgba(0, 0, 0, .45);
+}
+
+@media (max-width: 40rem) {
+  .payqr { flex: 1 1 100%; }
+  .payqr img { width: 12rem; height: 12rem; }
+  .runrow { align-items: flex-start; }
+}
