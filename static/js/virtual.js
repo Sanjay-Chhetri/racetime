@@ -477,8 +477,13 @@ async function refresh() {
 
   // Default the date to today: most runs are logged the day they happen, and
   // an empty date field on a phone is four taps.
-  $('runDate').value = new Date().toISOString().slice(0, 10);
-  $('runDate').max = new Date().toISOString().slice(0, 10);
+  //
+  // Local today, not UTC today. toISOString() is UTC, so in Kalimpong every
+  // run logged before half past five in the morning would have been dated
+  // yesterday -- and the max would have made today unpickable.
+  const today = new Date().toLocaleDateString('en-CA');   // YYYY-MM-DD, local
+  $('runDate').value = today;
+  $('runDate').max = today;
   $('howPanel').hidden = false;
 
   await refresh();

@@ -91,6 +91,13 @@ class Event(Base):
     photo_type = Column(String(32), nullable=True)
     photo_credit = Column(String(120), nullable=True)
 
+    # A migration marker, not a setting. Races are closed to unnamed admins,
+    # but the races that existed before that rule were open to all of them, so
+    # each one gets its crew filled in once -- preserving exactly the access
+    # people had that morning -- and is then marked done. New races are created
+    # with this already true, so they start closed and are never backfilled.
+    crew_default_applied = Column(Boolean, nullable=False, default=True)
+
     # --- a virtual race ---
     # A race nobody travels to: entrants run the distance where they live,
     # inside a window, and send evidence of each run. It is a flag on an event
@@ -141,6 +148,7 @@ class EventOperator(Base):
     own event.
     """
     __tablename__ = "event_operators"
+
 
     id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"),

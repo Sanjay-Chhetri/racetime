@@ -956,8 +956,15 @@ work. A parallel "virtual event" model would have doubled all of them.
   single run longer than the whole race, or the same distance twice on one day.
   The runner is told which, so they can fix a typo themselves.
 - **FR-24.11** **The window and the calendar refuse rather than flag.** A run
-  dated tomorrow, or before the race opened, or over 500 km, is `422` with the
-  reason. Those are rules, not judgements.
+  dated in the future, or before the race opened, or over 500 km, is `422` with
+  the reason. Those are rules, not judgements.
+- **FR-24.11a** **"Today" depends on where the runner is standing.** Kalimpong
+  is UTC+5:30, so between midnight and half past five the server's date is
+  still yesterday, and a runner logging this morning's run would have been told
+  it had not happened yet — with a date box that would not let them pick
+  today either. A run may be dated up to one day past UTC, which covers every
+  timezone to UTC+14, and the form fills in the runner's own local date rather
+  than a UTC one.
 - **FR-24.12** **Progress is summed from the submissions on every request and
   never stored** — the same rule as results. Rejecting a run two weeks later
   changes a status, and the next read gives the new answer; there is nothing to
@@ -1051,13 +1058,21 @@ hold the others, and "view only" is not a lesser version of that: a race's
 entry list carries every entrant's email, phone, emergency contact and, for a
 virtual race, their home address.
 
-- **FR-26.1** A race can have named operators. **While nobody is named, every
-  admin can run it** — which is how every race behaved before this existed,
-  so nothing broke when it arrived and there was no migration to get wrong.
-- **FR-26.2** **Naming somebody closes the race.** From then on only the people
-  named, and the super admins, may touch it. Emptying the list opens it again.
-  That makes assignment the thing an organiser does, rather than a mode to
-  turn on first.
+- **FR-26.1** A race has named operators, and **an admin may run it only when
+  named on it**. A race nobody is named on belongs to the super admins alone,
+  which is the safe way round: a race created and then forgotten is closed,
+  rather than open to every admin in the organisation until somebody remembers
+  to shut it.
+- **FR-26.2** **The races that existed before this rule keep the access they
+  had.** Each is given every active admin once, at the migration, and marked
+  done; switching to "only the people named" would otherwise have locked people
+  out of work they were doing that morning. The marker is a column that
+  `ADD COLUMN` leaves NULL on exactly those rows, which is what makes "once"
+  possible without a second table to remember it in. Races created afterwards
+  carry the marker already set, so they start closed and are never backfilled.
+- **FR-26.2a** Emptying the list is allowed and leaves the race to the super
+  admins, since that is the state a race starts in. The screen warns first,
+  because the person doing it is usually removing their own help.
 - **FR-26.3** **Super admins are never scoped and never listed.** They create
   races and manage accounts; scoping them would let an organisation lock itself
   out of its own event. Assigning one is refused, because offering it implies
@@ -1083,9 +1098,9 @@ virtual race, their home address.
 - **FR-26.9** Only a **super admin** may read or change who runs a race.
 - **FR-26.10** A runner cannot be assigned, and is told to be made an admin
   first. Nor can a disabled account.
-- **FR-26.11** **The screen says which state it is in.** "Nobody assigned" and
-  "nobody allowed" look identical in a column of unticked boxes, so the panel
-  spells out that an unassigned race is open to every admin.
+- **FR-26.11** **The screen says which state it is in.** An empty column of
+  tick boxes does not say which way round the rule is, so the panel spells out
+  that a race with nobody ticked can be run by super admins only.
 - **FR-26.12** Site-wide screens are not race-scoped, so they were placed by
   hand: the **one shared inbox stays open to every admin**, while the
   **workshops and the visitor numbers moved to super admin** — an admin
@@ -1420,7 +1435,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **720 assertions** — 432 against the API, 288 driving a real
+carry **729 assertions** — 440 against the API, 289 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1447,6 +1462,7 @@ race in a list was its own, and one assumed a password another suite rotates.
 | **Checkpoint sequence** | 7 cases | duplicate in same race `409` naming the holder; same sequence in another race allowed |
 | **Constraint errors** | duplicate checkpoint and race names | `409` with readable JSON, not a plain-text 500 |
 | **Timezones** | 11 endpoints | 17 timestamps, 0 naive |
+| | a run dated today in IST before 05:30 | accepted. One day past UTC is allowed, because it is still today somewhere; two is refused |
 | **Multi-race ranking** | purpose-built 5K + 10K event, 6 checks | 5K winner not ranked against the 10K field; staggered start honoured |
 | **Uploads** | SVG content named `.png`, declared `image/png` | rejected `422` by magic-byte sniff |
 | **Escaping** | `<img src=x onerror=…>` as a runner name | rendered inert |
@@ -1474,6 +1490,7 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | with SMTP unset | every decision still saves, and an account with no email address is skipped silently |
 | **Per-race admins** | 44 checks over the API | an unassigned race is open to every admin; naming one closes it; emptying the list reopens it |
 | | **every race-level route, enumerated from the app** | all 34 answer `403` to an admin who is not on that race, including the six multipart ones. A route that is not scoped has to be named in the suite with a reason, so a new one added and forgotten fails here |
+| | the default | a new race is closed to every admin until somebody is named; the races that predate the rule keep the admins they had, once, and are not re-filled on the next boot |
 | | what cannot be assigned | a runner (`422`, told to be made an admin first), a super admin, an unknown id; none of them change the list |
 | | the public side | results, the listing and the start list unchanged; entries still `401` to the public |
 | **Per-race admins in the browser** | Chromium, 34 checks | the picker offers his race and not hers; the other race's address shows one message instead of a screen of refusals; Members, Workshops and Visitors are gone for an admin and Messages is not |

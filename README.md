@@ -453,10 +453,14 @@ Four admins and five races, and you do not want the person running the Pedong
 race opening the Kalimpong one. Open a race, and under **Who runs this race**
 tick the people who should run it.
 
-**While nobody is ticked, every admin can run the race.** That is how every
-race worked before this existed, so nothing changed for the ones you already
-have. Tick two people and only those two can touch it; everybody else stops
-seeing it at all. Clear the ticks and it opens up again.
+**A race with nobody ticked can only be run by you and the other super
+admins.** That is how a new race starts, so nothing is ever open by accident.
+Tick two people and those two can run it; everybody else cannot see it at all.
+Untick everybody and it comes back to the super admins.
+
+Your existing races kept the admins they already had — johny and sherap
+were put on all four when this arrived, so nobody lost access overnight. Races you
+make from now on start closed.
 
 | | Super admin | An admin on the race | An admin not on it |
 |---|---|---|---|

@@ -109,6 +109,8 @@ for phrase, why in [
      "races have named operators now"),
     ("Per-event roles | Not built", "per-race admins are built"),
     ("642 assertions", "the suites have grown again"),
+    ("720 assertions", "the suites have grown again"),
+    ("While nobody is named, every", "a race with nobody named is closed now"),
     ("Race photography | Not built", "races carry a photograph now"),
     ("10 tables", "the table count has changed"),
 ]:

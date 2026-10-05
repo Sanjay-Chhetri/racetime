@@ -205,11 +205,11 @@ async function loadCrew() {
     .sort((a, b) => a.display_name.localeCompare(b.display_name));
   const on = new Set(crew.assigned.map(m => m.id));
 
-  // "Nobody assigned" and "nobody allowed" look identical in a column of
-  // unticked boxes, so the state is spelled out rather than implied.
+  // An empty column of boxes does not say which way round the rule is, so the
+  // state is spelled out rather than left to be inferred from it.
   $('crewState').textContent = crew.open_to_all
-    ? 'Nobody is assigned, so every admin can run this race. Tick the people '
-      + 'who should run it and only they will be able to.'
+    ? 'Nobody is assigned, so only super admins can run this race. Tick the '
+      + 'people who should run it.'
     : `${crew.assigned.length} of ${all.length} admins can run this race. `
       + 'The others cannot open it at all.';
 
@@ -219,7 +219,6 @@ async function loadCrew() {
         ${esc(m.display_name)} <span class="note">${esc(m.username)}</span></label>`).join('')
     : '<p class="note">There are no admin accounts yet. Add one under '
       + 'Members, then come back.</p>';
-  $('crewOpen').hidden = crew.open_to_all;
   $('crewPanel').hidden = false;
 }
 
@@ -229,26 +228,28 @@ async function saveCrew(ids) {
     crew = await api(`/events/${ev.code}/operators`,
                      json('PUT', { user_ids: ids }));
     ok(crew.open_to_all
-      ? 'Open to every admin again.'
+      ? 'Nobody assigned. Only super admins can run this race now.'
       : `${crew.assigned.length} admin${crew.assigned.length === 1 ? '' : 's'} `
         + 'can run this race.');
     loadCrew();
   } catch (e) { crewError(e.message); }
 }
 
-$('crewSave').onclick = e => withBusy(e.currentTarget, () => saveCrew(
-  [...document.querySelectorAll('[data-crew]:checked')]
-    .map(b => Number(b.dataset.crew))));
+$('crewSave').onclick = e => withBusy(e.currentTarget, async () => {
+  const ids = [...document.querySelectorAll('[data-crew]:checked')]
+    .map(b => Number(b.dataset.crew));
+  if (await crewWarnIfEmpty(ids)) await saveCrew(ids);
+});
 
-$('crewOpen').onclick = async () => {
-  if (!await confirmDialog({
-    title: 'Open this race to every admin?',
-    body: 'Anybody with an admin account will be able to run it, which is how '
-        + 'a race with nobody assigned behaves.',
-    confirm: 'Open it',
-  })) return;
-  saveCrew([]);
-};
+/* Unticking everybody and saving leaves the race to the super admins, which is
+   where a new race starts. It is worth a word of warning on the way, because
+   the person doing it may be removing themselves from their own help. */
+const crewWarnIfEmpty = async ids => (ids.length ? true : await confirmDialog({
+  title: 'Leave this race to the super admins?',
+  body: 'With nobody ticked, no admin will be able to open this race. You and '
+      + 'the other super admins still can.',
+  confirm: 'Save anyway',
+}));
 
 $('pickEvent').onchange = e => { if (e.target.value) load(e.target.value); };
 

@@ -198,6 +198,7 @@ _add_missing_columns("events", {
     "payment_qr_type": "VARCHAR(32)",
 })
 _add_missing_columns("races", {"price_paise": "INTEGER"})
+_add_missing_columns("events", {"crew_default_applied": "BOOLEAN"})
 # event_operators is a new table, so create_all makes it in full -- there are
 # no columns to add to it. It is named here only so the next person looking for
 # where a schema change goes finds the list complete.
@@ -245,6 +246,45 @@ def _backfill_profiles():
         print(f"  Could not backfill user visibility: {type(e).__name__}: {e}")
 
 
+def _backfill_crew():
+    """Give the races that predate per-race admins the crew they already had.
+
+    Before this rule, every admin could run every race. Switching to "only the
+    people named" would have locked them out of work they were doing that
+    morning, so each existing race is given every active admin, once, and
+    marked done. ADD COLUMN leaves the marker NULL on exactly those rows, which
+    is what makes "once" possible without a second table to remember it in.
+
+    Races created afterwards carry the marker already set, so they start closed
+    and are never touched by this.
+    """
+    db = SessionLocal()
+    try:
+        stale = db.query(Event).filter(Event.crew_default_applied.is_(None)).all()
+        if not stale:
+            return
+        admins = (db.query(models.User)
+                  .filter(models.User.role == "admin",
+                          models.User.is_active.is_(True)).all())
+        pairs = 0
+        for ev in stale:
+            have = {r.user_id for r in db.query(models.EventOperator)
+                    .filter(models.EventOperator.event_id == ev.id).all()}
+            for u in admins:
+                if u.id not in have:
+                    db.add(models.EventOperator(event_id=ev.id, user_id=u.id))
+                    pairs += 1
+            ev.crew_default_applied = True
+        db.commit()
+        print(f"  Kept {len(admins)} admin(s) on {len(stale)} existing race(s) "
+              f"({pairs} assignment(s)); new races start closed.")
+    except Exception as e:                      # noqa: BLE001
+        db.rollback()
+        print(f"  Could not back-fill race crews: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+
 def _backfill_money():
     """Zero is not NULL, and the response models say int, not Optional[int].
 
@@ -265,6 +305,7 @@ def _backfill_money():
 _backfill_flags()
 _backfill_profiles()
 _backfill_money()
+_backfill_crew()
 
 
 def _seed_demo_event():
@@ -442,10 +483,14 @@ SUPER = auth.SUPER          # super admin only
 # A super admin may run anything: they create races and manage accounts, and
 # scoping them would lock an organisation out of its own event.
 #
-# An admin may run a race when **nobody is assigned to it** -- which is how
-# every race behaved before this existed, so nothing broke when it arrived --
-# or when they are one of the people assigned. Assigning somebody is therefore
-# what closes a race, and emptying the list opens it again.
+# An admin may run a race **only when they are named on it**. A race nobody is
+# named on is a race only the super admins can run, which is the safe way round:
+# a race created and then forgotten about is closed, rather than open to every
+# admin in the organisation until somebody remembers.
+#
+# The races that existed before this rule were open to every admin, so each one
+# had its crew filled in once at the migration -- see _backfill_crew -- rather
+# than quietly locking people out of work they were already doing.
 #
 # The check is a dependency rather than a line inside each handler, because
 # there are more than thirty race-level endpoints and a line forgotten in one
@@ -463,8 +508,7 @@ def may_run(db: Session, user: Optional[models.User], event: Event) -> bool:
         return False
     if user.is_super:
         return True
-    assigned = assigned_operator_ids(db, event)
-    return not assigned or user.id in assigned
+    return user.id in assigned_operator_ids(db, event)
 
 
 def _deny_race(event: Event):
@@ -1576,8 +1620,12 @@ async def submit_run(reg_id: int,
     if not (MIN_RUN_KM <= distance_km <= MAX_RUN_KM):
         raise HTTPException(
             422, f"A run has to be between {MIN_RUN_KM:g} and {MAX_RUN_KM:g} km.")
-    today = utcnow().date()
-    if ran_on > today:
+    # "Today" depends on where the runner is standing. Kalimpong is UTC+5:30,
+    # so between midnight and half past five every morning the server's date is
+    # still yesterday, and a runner logging this morning's run would be told it
+    # had not happened yet. The furthest-ahead timezone on earth is UTC+14, so
+    # a date that is genuinely today for somebody is at most one day past UTC.
+    if ran_on > utcnow().date() + timedelta(days=1):
         raise HTTPException(422, "That date has not happened yet.")
     # The window is the rule, not a plausibility check, so it refuses rather
     # than flags. A run from before the race opened is somebody else's run.
@@ -1811,6 +1859,9 @@ def race_crew(code: str, db: Session = Depends(get_db)):
             id=u.id, username=u.username,
             display_name=u.display_name or u.username, on=False)
             for u in admins if u.id not in assigned],
+        # Named for what it meant when an empty crew opened the race. It now
+        # reports the opposite situation -- nobody named, so nobody but a super
+        # admin can run it -- and the screen says which.
         open_to_all=not assigned,
     )
 
@@ -1825,9 +1876,9 @@ def set_race_crew(code: str, payload: schemas.RaceCrewIn,
     screen is a column of tick boxes and a half-applied set is a race somebody
     cannot get into.
 
-    **An empty list opens the race to every admin again** -- it is not a way to
-    lock everybody out. Locking the organisation out of its own race is not a
-    state worth being able to reach by accident.
+    **An empty list leaves the race to the super admins.** That is the state a
+    race starts in, so it has to be reachable; it is not a way to lock the
+    organisation out, because a super admin can always run every race.
     """
     ev = _get_event(db, code)
     wanted = set(payload.user_ids)
