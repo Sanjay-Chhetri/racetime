@@ -50,7 +50,8 @@ else:
 env_used = sorted(set(re.findall(r'os\.getenv\(\s*"([A-Z_][A-Z0-9_]*)"',
                                  "\n".join((ROOT / "backend" / f).read_text(encoding="utf-8")
                                            for f in ("main.py", "db.py", "auth.py",
-                                                     "mail.py", "analytics.py")))))
+                                                     "mail.py", "analytics.py",
+                                                     "notices.py")))))
 # Ones the platform sets, not ones an organiser configures.
 PLATFORM = {"VERCEL", "AWS_LAMBDA_FUNCTION_NAME", "FUNCTION_TARGET", "PORT",
             "AWS_EXECUTION_ENV", "K_SERVICE", "DYNO", "RAILWAY_ENVIRONMENT",

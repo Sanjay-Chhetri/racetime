@@ -998,6 +998,43 @@ work. A parallel "virtual event" model would have doubled all of them.
   due. The card says **Virtual race** and carries the distance — **no time and
   no placing**, because everybody ran their own course.
 
+### FR-25 — Telling people what happened
+
+Four decisions were silent, and an entrant could only learn of them by
+reloading the site: an entry confirmed or rejected, a payment received or
+waived, a run rejected, a distance finished.
+
+- **FR-25.1** Each of those sends one email to the person it is about.
+- **FR-25.2** **These are transactional, not announcements.** They are about a
+  thing this person did, so `announcements_opt_in` does not gate them —
+  consenting to hear about your own entry is not the same question as
+  consenting to be told about future races. The opt-in still governs
+  announcements.
+- **FR-25.3** **A notice only goes when something changed.** Marking an
+  already-paid entry paid again, or re-confirming a confirmed entry, sends
+  nothing. Logging more runs after finishing does not repeat the congratulations.
+- **FR-25.4** **One email per moment.** Settling a payment for somebody who had
+  already covered the distance says both things in one message rather than
+  sending two.
+- **FR-25.5** A rejected run carries the organiser's own note. When there is no
+  note it says so rather than inventing a reason, and a rejection never reads
+  like good news.
+- **FR-25.6** **`Reply-To` is the organiser, not the server.** Somebody who
+  thinks a decision is wrong replies to a person who can change it.
+  `Auto-Submitted: auto-generated` keeps these out of vacation-responder loops.
+- **FR-25.7** **Nothing here can stop a decision being saved.** The row is
+  committed first and the notice is queued as a background task, so an SMTP
+  server that hangs for fifteen seconds does not make an organiser wait to find
+  out their own click worked. Failures are returned, never raised.
+- **FR-25.8** With SMTP unset every notice is a quiet no-op, and **the admin
+  screen says plainly that nothing is being sent** — an organiser who believes
+  entrants are being notified will not chase the ones waiting to hear.
+- **FR-25.9** An account with no email address is skipped, and that is not
+  treated as an error.
+- **FR-25.10** Composing a notice and sending it are separate: the composers are
+  plain functions over plain values, with no ORM object, database or network, so
+  what the email says is tested directly. That is where this kind of bug lives.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -1319,7 +1356,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **553 assertions** — 299 against the API, 254 driving a real
+carry **642 assertions** — 388 against the API, 254 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1367,6 +1404,10 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | the UPI intent link | `upi://pay` carrying payee, ₹ amount, INR and a note naming the payer and the race |
 | | a settled entry | every way to pay is withdrawn, so nobody pays twice |
 | | an ordinary race | no virtual tag, no steps, still asks for an emergency contact and not an address |
+| **Notices** | 89 checks at three layers | what each of the five emails says, called directly with no server or network |
+| | transport | a fake SMTP server: addressed to the runner, `Reply-To` the organiser, marked auto-generated; a refused connection is returned, not raised |
+| | the glue | each decision queues exactly one notice and only when something changed; paying twice, re-confirming and logging more runs after finishing all queue nothing |
+| | with SMTP unset | every decision still saves, and an account with no email address is skipped silently |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through

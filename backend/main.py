@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import (
-    Depends, FastAPI, Form, HTTPException, Request, UploadFile, File,
+    BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request, UploadFile,
+    File,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -24,7 +25,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import achievements, analytics, auth, mail, models, schemas
+from . import achievements, analytics, auth, mail, models, notices, schemas
 from .db import Base, SessionLocal, engine, get_db
 from .models import Checkpoint, Event, Participant, Race, Read, utcnow
 from .timing import compute_results, event_result_rows
@@ -1054,6 +1055,7 @@ def list_registrations(code: str, db: Session = Depends(get_db)):
 @app.patch("/api/registrations/{reg_id}", response_model=schemas.RegistrationOut,
            dependencies=ADMIN)
 def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
+                        background: BackgroundTasks,
                         db: Session = Depends(get_db)):
     """Accept, reject or reopen an entry.
 
@@ -1110,11 +1112,25 @@ def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
             models.Participant.user_id == reg.user_id).delete(
                 synchronize_session=False)
 
+    was = reg.status
     reg.status = payload.status
     reg.decided_at = utcnow()
     db.commit()
     db.refresh(reg)
-    return _registration_out(db, reg)
+    out = _registration_out(db, reg)
+
+    # This was silent until now: an entry sat as a request and the only way to
+    # learn it had been accepted was to keep looking at the website.
+    if payload.status in ("confirmed", "rejected") and was != payload.status:
+        ev = reg.event
+        when = None
+        if ev is not None and ev.starts_at:
+            when = _aware(ev.starts_at).strftime("%d %B %Y, %H:%M UTC")
+        _tell(background, reg.user, notices.entry_decided(
+            _who(reg.user), ev.name if ev else "your race", payload.status,
+            reg.race.name if reg.race else None, out.bib, when,
+            ev.location if ev else None))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -1195,6 +1211,27 @@ def get_virtual(code: str, db: Session = Depends(get_db)):
     Operator only, and deliberately not part of the public event response.
     """
     return _get_event(db, code)
+
+
+def _who(user: Optional[models.User]) -> str:
+    if user is None:
+        return "runner"
+    return user.display_name or user.username
+
+
+def _tell(background: BackgroundTasks, user: Optional[models.User],
+          composed: tuple) -> None:
+    """Queue a notice to go out after the response has been sent.
+
+    A background task rather than an inline call because SMTP can sit there
+    for fifteen seconds before it fails, and an organiser clicking "Mark paid"
+    should not wait on a mail server to find out their own click worked. The
+    decision is already committed by the time this runs.
+    """
+    if user is None or not user.email:
+        return
+    subject, body = composed
+    background.add_task(notices.send, user.email, subject, body)
 
 
 @app.patch("/api/events/{code}/virtual",
@@ -1337,16 +1374,28 @@ def claim_payment(reg_id: int, payload: schemas.PaymentClaimIn,
 @app.patch("/api/registrations/{reg_id}/payment",
            response_model=schemas.RegistrationOut, dependencies=ADMIN)
 def decide_payment(reg_id: int, payload: schemas.PaymentDecisionIn,
+                   background: BackgroundTasks,
                    db: Session = Depends(get_db)):
     """The organiser, having found it in their account. Or waiving it."""
     reg = db.get(models.Registration, reg_id)
     if reg is None:
         raise HTTPException(404, "No such entry.")
+    was = reg.payment_status or "unpaid"
     reg.payment_status = payload.payment_status
     reg.paid_at = utcnow() if payload.payment_status in SETTLED else None
     db.commit()
     db.refresh(reg)
-    return _registration_out(db, reg)
+    out = _registration_out(db, reg)
+    # Only on the way into settled, and only if it is news. Marking an
+    # already-paid entry paid again sends nothing.
+    if payload.payment_status in SETTLED and was != payload.payment_status:
+        _tell(background, reg.user, notices.payment_settled(
+            _who(reg.user), reg.event.name if reg.event else "your race",
+            reg.event.code if reg.event else "",
+            reg.race.name if reg.race else None,
+            reg.amount_paise or 0, payload.payment_status == "waived",
+            bool(out.certificate_ready)))
+    return out
 
 
 def _flags_for(db: Session, reg: models.Registration, distance_km: float,
@@ -1380,6 +1429,7 @@ def _flags_for(db: Session, reg: models.Registration, distance_km: float,
 @app.post("/api/registrations/{reg_id}/runs", response_model=schemas.RunOut,
           status_code=201)
 async def submit_run(reg_id: int,
+                     background: BackgroundTasks,
                      distance_km: float = Form(...),
                      ran_on: date = Form(...),
                      duration_seconds: Optional[int] = Form(None),
@@ -1426,6 +1476,9 @@ async def submit_run(reg_id: int,
             413, f"The screenshot must be under "
                  f"{MAX_ARTWORK_BYTES // (1024 * 1024)} MB")
 
+    # Measured before the run is added, so "they have just finished" can be
+    # told apart from "they finished a fortnight ago and are still logging".
+    before = _progress(db, reg)
     run = models.RunSubmission(
         registration_id=reg.id, distance_km=round(float(distance_km), 3),
         ran_on=ran_on, duration_seconds=duration_seconds or None,
@@ -1445,6 +1498,17 @@ async def submit_run(reg_id: int,
         run.evidence_url = f"/api/runs/{run.id}/evidence"
         db.commit()
         db.refresh(run)
+
+    # Finishing is the moment worth an email, and the only one a runner's own
+    # action earns -- nobody needs a receipt for each run they logged
+    # themselves. It says whether the certificate is theirs yet, because the
+    # answer depends on the money and they cannot be expected to guess.
+    after = _progress(db, reg)
+    if after["complete"] and not before["complete"]:
+        owed = 0 if reg.payment_status in SETTLED else (reg.amount_paise or 0)
+        _tell(background, reg.user, notices.distance_finished(
+            _who(reg.user), ev.name, ev.code,
+            reg.race.name if reg.race else None, after["target_km"], owed))
     return _run_out(run)
 
 
@@ -1482,6 +1546,7 @@ def run_evidence(run_id: int, user: models.User = Depends(auth.require_user),
 
 @app.patch("/api/runs/{run_id}", response_model=schemas.RunOut, dependencies=ADMIN)
 def decide_run(run_id: int, payload: schemas.RunDecisionIn,
+               background: BackgroundTasks,
                db: Session = Depends(get_db)):
     """An organiser clearing a flag, or rejecting a run.
 
@@ -1492,12 +1557,28 @@ def decide_run(run_id: int, payload: schemas.RunDecisionIn,
     run = db.get(models.RunSubmission, run_id)
     if run is None:
         raise HTTPException(404, "No such run.")
+    was = run.status
     run.status = payload.status
     if payload.note:
         run.note = payload.note
     run.decided_at = utcnow()
     db.commit()
     db.refresh(run)
+
+    reg = run.registration
+    if reg is not None and was != payload.status:
+        p = _progress(db, reg)
+        ev = reg.event
+        shared = (_who(reg.user), ev.name if ev else "your race",
+                  ev.code if ev else "", run.distance_km,
+                  run.ran_on.isoformat() if run.ran_on else "",
+                  p["done_km"], p["target_km"])
+        if payload.status == "rejected":
+            _tell(background, reg.user,
+                  notices.run_rejected(*shared, run.note))
+        elif was == "rejected":
+            # A reversal. Somebody who was told no is owed the yes.
+            _tell(background, reg.user, notices.run_counted(*shared))
     return _run_out(run)
 
 

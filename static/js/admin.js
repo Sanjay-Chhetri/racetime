@@ -1434,12 +1434,20 @@ async function loadMessages() {
     // arrangement here, not a gap. The banner should not read like a warning.
     if (mailState.configured) {
       el.hidden = false;
-      el.textContent = `Messages arrive here, and a copy is emailed to ${mailState.to}.`;
+      el.textContent = `Messages arrive here, and a copy is emailed to `
+        + `${mailState.to}. Runners are emailed too, when you confirm an `
+        + `entry, mark a payment received, reject a run, or they finish a `
+        + `distance.`;
     } else {
       el.hidden = false;
-      el.textContent = 'Messages arrive here. Email forwarding is off, which '
-        + 'keeps them in one place instead of in an inbox — set SMTP_HOST, '
-        + 'SMTP_USER and SMTP_PASSWORD if you ever want copies sent on.';
+      // An organiser who thinks entrants are being told things that nobody is
+      // telling them will not chase people who are waiting to hear.
+      el.textContent = 'Messages arrive here. Email is not set up, so '
+        + 'nothing is sent out either — runners are not told when you '
+        + 'confirm their entry, mark a payment received, reject a run or they '
+        + 'finish a distance. The app always shows them the truth; they have '
+        + 'to come and look. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD to '
+        + 'change that.';
     }
   } catch { /* the list matters more than the banner */ }
 

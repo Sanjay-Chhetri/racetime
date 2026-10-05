@@ -35,6 +35,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Workshops](#workshops)
 - [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
+- [Telling people what happened](#telling-people-what-happened)
 - [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
@@ -413,6 +414,38 @@ If you do want copies forwarded, set `SMTP_HOST`, `SMTP_USER` and
 `SMTP_PASSWORD` (and `CONTACT_EMAIL` to change the destination from
 `sanjay.chhetri4u@gmail.com`).
 
+### Telling people what happened
+
+Four moments used to be silent, and the only way to learn about any of them was
+to keep opening the website:
+
+| When | What they get |
+|---|---|
+| You confirm an entry | "You are in", with their bib, distance, date and place |
+| You mark a payment received, or waive it | What arrived, and the certificate if they had already finished |
+| You reject a run | Which run, your reason, and where they now stand |
+| They finish a distance | Either the certificate, or what is still owed |
+
+These are about a thing that person did, so they always go — they are not the
+same question as the announcements tick-box, which is for news about races
+nobody has entered yet. Nobody is emailed about anybody else's entry, and an
+account with no email address is skipped silently.
+
+A reply goes to **you**, not to the server, so somebody who thinks you have
+made a mistake can just hit reply.
+
+**With no SMTP set up, none of this sends** and the Messages screen says so
+plainly — because an organiser who believes entrants are being told things
+nobody is telling them will not go and chase the people waiting to hear. The
+app always shows the truth on screen either way; email is a copy, exactly as it
+is for the contact form.
+
+To turn it on, set `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD`, plus
+`SITE_URL` so the links in the emails point at your own site rather than the
+default `https://racetime-beta.vercel.app`.
+
+---
+
 ## Signing in
 
 Organisers sign in at `/login.html` with a username and password. There are two
@@ -630,6 +663,7 @@ backend/
   auth.py         Passwords, sessions and the three ordered roles
   analytics.py    Visitor counting, hashed daily and never identifying
   mail.py         Forwards the contact form when SMTP is configured
+  notices.py      Tells a runner what happened to their own entry
   db.py           SQLite by default; DATABASE_URL switches to Postgres
 static/
   index.html        Home — find a race, upcoming races, contact
