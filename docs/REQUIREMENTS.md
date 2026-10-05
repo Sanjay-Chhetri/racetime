@@ -1417,7 +1417,8 @@ the part that remains.
 | The interest question | Half built — endpoint and table exist, nothing asks it |
 | Audit of admin actions | Not built for anything but reads |
 | Year grouping of events | Not built. Only useful across multiple seasons |
-| SMS / email notification | Not built. The contact form sends one way |
+| SMS notification | Not built. Email notices are (FR-25); nothing goes by SMS |
+| Email, in practice | Built but **switched off**: no SMTP is configured, so every notice is a no-op and the admin screen says so |
 | Checkpoint device credentials | Not built. Ingest is open on purpose, see [8.1](#81-why-read-ingest-is-open) |
 | Age-group awards | Partially covered by category ranking |
 

@@ -112,6 +112,7 @@ for phrase, why in [
     ("720 assertions", "the suites have grown again"),
     ("While nobody is named, every", "a race with nobody named is closed now"),
     ("Race photography | Not built", "races carry a photograph now"),
+    ("SMS / email notification | Not built", "email notices are built"),
     ("10 tables", "the table count has changed"),
 ]:
     if phrase in DOCS:
