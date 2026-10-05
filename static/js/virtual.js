@@ -151,6 +151,7 @@ async function drawPayment() {
     // Nothing to do, so nothing to fill in. Leaving a live payment form on a
     // settled entry invites somebody to pay twice.
     $('qrBox').hidden = true;
+    $('payApp').hidden = $('payCopy').hidden = $('payHow').hidden = true;
     $('payTo').textContent = '';
     $('payNote').textContent = '';
     $('payRef').hidden = $('paySend').hidden = true;
@@ -163,6 +164,51 @@ async function drawPayment() {
     $('qrImg').src = pay.qr_url;
     $('qrBox').hidden = false;
   }
+
+  /* Three ways to pay, offered in the order that actually works on one phone.
+     A QR image was the only way until somebody pointed out that you cannot
+     scan a code on the screen you are holding -- which is every runner here,
+     on the one phone they own. */
+  if (pay.upi_id) {
+    // A UPI intent link. Android hands it to whichever UPI app is installed;
+    // on a desktop, and on iOS where the scheme is not always claimed,
+    // nothing opens -- which is why copying the id and the QR both stay.
+    const rupees = ((entry.amount_paise || 0) / 100).toFixed(2);
+    const who = me.user.display_name || me.user.username;
+    const params = new URLSearchParams({
+      pa: pay.upi_id,
+      pn: pay.upi_name || 'RaceTime',
+      am: rupees,
+      cu: 'INR',
+      // Fill in the note for them. Organisers ask for a name in it so they can
+      // find the payment, and somebody typing it themselves will forget.
+      tn: `${who} ${code}`.slice(0, 50),
+    });
+    $('payApp').href = `upi://pay?${params.toString()}`;
+    $('payApp').hidden = false;
+    $('payCopy').hidden = false;
+    $('payHow').textContent = 'The button opens your UPI app with the amount '
+      + 'and the note already filled in. If nothing opens, copy the id and '
+      + 'paste it into your app by hand.';
+    $('payHow').hidden = false;
+  } else {
+    $('payApp').hidden = $('payCopy').hidden = $('payHow').hidden = true;
+  }
+  $('payCopy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(pay.upi_id);
+      ok('UPI id copied.');
+    } catch {
+      // Clipboard access is refused in some browsers and over plain http.
+      // Selecting it for them is the next best thing to copying it.
+      const r = document.createRange();
+      r.selectNodeContents($('payTo'));
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      ok('Copy the highlighted id.');
+    }
+  };
   $('payTo').innerHTML = pay.upi_id
     ? `Pay <strong>${money(entry.amount_paise)}</strong> to `
       + `<strong>${esc(pay.upi_id)}</strong>`
@@ -433,6 +479,7 @@ async function refresh() {
   // an empty date field on a phone is four taps.
   $('runDate').value = new Date().toISOString().slice(0, 10);
   $('runDate').max = new Date().toISOString().slice(0, 10);
+  $('howPanel').hidden = false;
 
   await refresh();
   $('logPanel').hidden = !!(event_ && event_.ends_at

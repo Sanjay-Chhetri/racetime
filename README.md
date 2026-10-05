@@ -281,6 +281,12 @@ People pay you directly by UPI and type in the reference number their app gave
 them. You check it against your own account and tick it off. The QR and your
 UPI id are only shown to people who have already entered.
 
+Entrants get three ways to pay, because **you cannot scan a QR code on the
+screen you are holding** and most people here have one phone: a button that
+opens their UPI app with your id, the amount and a note naming them already
+filled in; a button that copies your UPI id; and your QR, for anybody paying
+from a second phone or a desktop.
+
 Entrants see the price on the distance before they enter, and are asked for a
 postal address — optional, only so you can post a medal, and only ever visible
 to you.

@@ -9,6 +9,15 @@ import { mountPicker } from '/js/theme.js';
 const $ = id => document.getElementById(id);
 mountPicker($('wallpaper'));
 
+/** Where to go once the account exists. Same-origin paths only: `next` comes
+ *  from the address bar, and following it anywhere else is an open redirect.
+ *  The same rule and the same reason as login.js. */
+function destination() {
+  const wanted = new URLSearchParams(location.search).get('next') || '';
+  if (wanted.startsWith('/') && !wanted.startsWith('//')) return wanted;
+  return '/me.html';
+}
+
 function fail(message) {
   const el = $('err');
   el.textContent = message;
@@ -70,8 +79,11 @@ $('signupForm').onsubmit = e => {
       return;
     }
 
-    // Signing up signs you in, so there is nothing to do but go.
-    location.href = '/me.html';
+    // Signing up signs you in, so there is nothing to do but go -- back to
+     // whatever they were trying to do, which is usually entering a race they
+     // had already chosen. Landing them on their own empty page meant finding
+     // that race again, and some of them will not.
+    location.href = destination();
   });
 };
 

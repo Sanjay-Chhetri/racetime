@@ -974,7 +974,26 @@ work. A parallel "virtual event" model would have doubled all of them.
   owes.
 - **FR-24.20** An event with live entries **cannot have the virtual flag turned
   off** — `409`, with the instruction to close entries instead.
-- **FR-24.21** The runner's own page is `/virtual.html#<code>`: progress, how
+- **FR-24.21** **Paying must work on one phone.** You cannot scan a QR code
+  on the screen you are holding, and most entrants here have one device. The
+  payment panel offers, in this order: a `upi://pay` intent link with the
+  payee, amount, currency and a note naming the payer and the race already
+  filled in; a button that copies the UPI id; and the QR, labelled for use
+  from a second phone. The intent link opens an app on Android and may do
+  nothing on a desktop or on iOS, which is why the other two stay.
+- **FR-24.22** **Entering while signed out must not lose the race.** "Enter
+  this race" sends a signed-out visitor to `/signup.html?next=/?enter=<code>`,
+  and signing up returns to the listing with that race's form already open.
+  `next` is followed only when it is a same-origin path, like login's. It used
+  to drop them on their own empty page, and finding the race again is a step
+  some of them would not take.
+- **FR-24.23** **The site has to say what a virtual race is.** Four numbered
+  steps appear on the card, in the entry form at the moment the decision is
+  made, and on the runner's own page: run it in your own time over as many
+  runs as you like, use any watch or app, send a photo of each result, finish
+  the distance and the certificate is yours. Nobody in Kalimpong has run a
+  race that works like this.
+- **FR-24.24** The runner's own page is `/virtual.html#<code>`: progress, how
   to pay, a form to log a run, the runs so far, and the certificate when it is
   due. The card says **Virtual race** and carries the distance — **no time and
   no placing**, because everybody ran their own course.
@@ -1300,7 +1319,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **507 assertions** — 299 against the API, 208 driving a real
+carry **553 assertions** — 299 against the API, 254 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1344,6 +1363,10 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | evidence and addresses | screenshot `403` to another runner and `401` to the public; the address list `403` to a runner and absent from every public response |
 | **Virtual races in the browser** | Chromium, 86 checks | organiser sets it up, runner enters, pays by reference, logs three runs, is queried on one, finishes, and the card renders 1080 × 1350 with no time on it |
 | | the public event response | checked field by field for a UPI handle after one was found on it |
+| **Taking part** | Chromium at 390 px, 45 checks | a first-time visitor taps Enter, signs up, comes back to the open form, reads the four steps, enters, pays and logs a run on one phone with no sideways scroll |
+| | the UPI intent link | `upi://pay` carrying payee, ₹ amount, INR and a note naming the payer and the race |
+| | a settled entry | every way to pay is withdrawn, so nobody pays twice |
+| | an ordinary race | no virtual tag, no steps, still asks for an emergency contact and not an address |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through

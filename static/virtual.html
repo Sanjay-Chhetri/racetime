@@ -20,6 +20,19 @@
 
 <p class="fieldErr" id="err" hidden></p>
 
+<!-- Four lines, because somebody arriving here for the first time has never
+     done a race that works like this. -->
+<section class="panel" id="howPanel" hidden>
+  <h2>How this race works</h2>
+  <ol class="howsteps">
+    <li>Run the distance in your own time, anywhere, before the window closes.
+      Split it over as many runs as you like.</li>
+    <li>Use any watch, phone app or treadmill.</li>
+    <li>Log each run below with a photo or screenshot of the result.</li>
+    <li>When the distance is done, your certificate appears on this page.</li>
+  </ol>
+</section>
+
 <!-- How far they have got. First, because it is the only thing they came for. -->
 <section class="panel" id="progressPanel" hidden>
   <div class="row between">
@@ -43,11 +56,18 @@
   <div class="paybox">
     <div class="payqr" id="qrBox" hidden>
       <img id="qrImg" alt="The organiser's UPI QR code">
-      <p class="note tight">Scan with any UPI app</p>
+      <p class="note tight">Scan this from another phone,
+      or use the button &mdash; you cannot scan a code on the screen you are
+      holding.</p>
     </div>
     <div class="paywho">
       <p id="payTo"></p>
       <p class="note" id="payNote"></p>
+      <div class="row" id="payActs">
+        <a id="payApp" class="button primary" href="#" hidden>Pay in your UPI app</a>
+        <button id="payCopy" type="button" hidden>Copy the UPI id</button>
+      </div>
+      <p class="note tight" id="payHow" hidden></p>
       <label for="payRef">The reference number your app gave you</label>
       <input id="payRef" placeholder="e.g. 431290118822" autocomplete="off">
       <p class="note tight">Paste it here after you pay. The organiser checks

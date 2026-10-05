@@ -1950,6 +1950,11 @@ a.button {
 }
 a.button.primary { background: var(--paint); color: #1a1500; }
 a.button.primary:hover { background: #ffd719; }
+/* The fifth time this has been needed: an author `display` beats the browser's
+   own [hidden] rule at equal specificity, so hiding this in JS does nothing
+   without saying so here. It left a live "Pay in your UPI app" button on an
+   entry that was already paid for. */
+a.button[hidden] { display: none; }
 
 .bar {
   height: 1.1rem; border-radius: 999px; overflow: hidden;
@@ -2006,3 +2011,16 @@ a.button.primary:hover { background: #ffd719; }
   .payqr img { width: 12rem; height: 12rem; }
   .runrow { align-items: flex-start; }
 }
+
+/* Four lines explaining a kind of race nobody here has run before. Numbered,
+   because they happen in an order, and tight enough to sit inside the entry
+   form without pushing the button off a phone screen. */
+.howsteps {
+  margin: .6rem 0 .8rem; padding-left: 1.4rem;
+  font-size: .92rem; color: var(--muted); line-height: 1.5;
+}
+.howsteps li { margin: .25rem 0; }
+.howsteps li::marker { color: var(--paint); font-weight: 700; }
+
+#payActs { margin: .5rem 0 .2rem; }
+#payActs > * { flex: 0 0 auto; }

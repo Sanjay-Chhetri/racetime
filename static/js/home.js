@@ -181,7 +181,9 @@ async function loadUpcoming() {
       ${e.is_virtual ? '<span class="tag virtual">Virtual race</span>' : ''}
       <h3>${esc(e.name)}</h3>
       ${e.is_virtual
-        ? '<p class="evwhere">Run it wherever you are</p>'
+        ? '<p class="evwhere">Run it wherever you are, on your own time</p>'
+          + '<p class="note tight">Any watch, app or treadmill. Send a photo of'
+          + ' the result and the certificate is yours.</p>'
         : e.location ? `<p class="evwhere">${esc(e.location)}</p>` : ''}
       ${e.description ? `<p class="note">${esc(e.description)}</p>` : ''}
       <div class="evraces">${races}</div>
@@ -203,7 +205,10 @@ function openEntry(code) {
   // Entering needs an account. Sending them to sign up, with a way back, beats
   // letting them fill in a form that is going to be refused.
   if (!me) {
-    location.href = '/signup.html';
+    // Come back here with the race still chosen, rather than making them hunt
+    // for it a second time.
+    location.href = '/signup.html?next='
+      + encodeURIComponent('/?enter=' + encodeURIComponent(code));
     return;
   }
   const ev = upcoming.find(e => e.code === code);
@@ -220,6 +225,9 @@ function openEntry(code) {
   // somebody did on their own, so a virtual race does not ask for one.
   $('enEmergencyWrap').hidden = !!ev.is_virtual;
   $('enVirtual').hidden = !ev.is_virtual;
+  // Nobody has done a race that works like this before, and the moment they
+  // are deciding is the moment to say how it works.
+  $('enHow').hidden = !ev.is_virtual;
   $('enRace').onchange = () => showPrice(ev);
   showPrice(ev);
   $('enErr').hidden = true;
@@ -453,4 +461,19 @@ loadRaces().then(() => {
 });
 // Identity first: it decides whether "Enter this race" opens a form or leads
 // to sign-up, so the race list waits on it.
-initAuth().then(() => { loadUpcoming(); loadWorkshops(); });
+/* ?enter=<code> opens that race's entry form as soon as the list is loaded.
+   It is how somebody comes back from signing up and carries on where they
+   were, and it makes a race shareable as a link that opens the form. */
+function openRequestedEntry() {
+  const code = new URLSearchParams(location.search).get('enter');
+  if (!code) return;
+  // Take it out of the address bar, so a reload or a back button does not
+  // reopen a form they have already dealt with.
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (upcoming.some(e => e.code === code)) openEntry(code);
+}
+
+initAuth().then(() => {
+  loadUpcoming().then(openRequestedEntry);
+  loadWorkshops();
+});
