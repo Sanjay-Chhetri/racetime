@@ -70,6 +70,21 @@ export function correctedNow(offsetMs) {
 
 /* ---- sync loop ---------------------------------------------------------- */
 
+/* The checkpoint code, if this race needs one. Held per race, because a phone
+   may be lent to a different event next weekend, and read at send time rather
+   than captured in a closure so that typing it in mid-race starts the queue
+   draining without a reload. */
+export const deviceKey = {
+  get(eventCode) {
+    try { return localStorage.getItem('racetime.key.' + eventCode) || ''; }
+    catch { return ''; }
+  },
+  set(eventCode, key) {
+    try { localStorage.setItem('racetime.key.' + eventCode, key || ''); }
+    catch { /* a private window still scans; it just forgets the code */ }
+  },
+};
+
 export function makeSyncer(eventCode, onStatus) {
   let running = false;
 
@@ -90,11 +105,19 @@ export function makeSyncer(eventCode, onStatus) {
       // enormous request that times out and never drains.
       for (let i = 0; i < pending.length; i += 100) {
         const batch = pending.slice(i, i + 100);
+        const key = deviceKey.get(eventCode);
         const res = await fetch(`/api/events/${eventCode}/reads`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(key ? { 'X-Device-Key': key } : {}),
+          },
           body: JSON.stringify({ reads: batch.map(stripLocal) }),
         });
+        // A wrong or missing code is worth saying plainly: the scans are safe
+        // in the queue, and the volunteer needs to know it is the code and not
+        // the signal. Everything else stays a plain retry.
+        if (res.status === 403) throw new Error('BADKEY');
         if (!res.ok) throw new Error('HTTP ' + res.status);
         // Only drop from the queue once the server has confirmed. Duplicates
         // are harmless -- read_id is the primary key server-side -- so resending

@@ -622,6 +622,28 @@ centre. So:
 
 ---
 
+### Stopping strangers scanning
+
+The capture screen is open to anybody with the link, and so is the endpoint it
+posts to. That is deliberate: volunteers scan without accounts, which is what
+lets you hand the link to somebody at a junction and have it work.
+
+If you would rather only your own volunteers could send scans, open the race,
+go to **Checkpoints**, and press **Require a code**. You get six characters like
+`K7M2PQ`. Read it out to each volunteer as you set their phone up; they type it
+once and the phone remembers it for that race.
+
+The screen checks the code before scanning starts, so nobody discovers at the
+end of a morning that an hour of work could not be sent. If a code is wrong
+mid-race the screen says **code wrong** rather than pretending it is a signal
+problem, and every scan stays queued until it is fixed.
+
+**Leaving it off is a reasonable choice.** A fake scan is noise you void from
+the Reads tab in seconds. A volunteer who cannot send is a race with no
+results.
+
+---
+
 ## Finisher share cards
 
 Generated after the race from the real results, so they carry the finish time
@@ -919,11 +941,10 @@ and a table but nothing that asks it.
 
 Two gaps worth naming rather than leaving to be discovered:
 
-- **The checkpoint screen has no credentials.** Volunteers scan without
-  accounts, so `POST /api/events/{code}/reads` is open. Reads are append-only
-  and every one can be voided, so the worst case is noise a race director
-  clears from the audit screen — but closing it properly means a per-device
-  code issued at checkpoint setup, and that is not built.
+- **Nobody is recorded as having made a change.** A bib changed or an entry
+  confirmed is saved, but not who did it. Reads carry a full trail; nothing
+  else does, and with several admins on different races that is the gap
+  worth closing next.
 - **Session duration is not measured.** The visitor numbers cover who, when and
   what, but not how long anyone stayed; that needs a script reporting back from
   each page, which is the thing the server-side approach avoids.

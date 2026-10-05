@@ -144,6 +144,8 @@ class EventOut(BaseModel):
     registration_open: bool = False
     photo_url: Optional[str] = None
     photo_credit: Optional[str] = None
+    # Whether the capture screen has to ask for a code. Never the code itself.
+    needs_device_key: bool = False
     is_virtual: bool = False
     ends_at: Optional[UtcDatetime] = None
     races: List[RaceOut] = []
@@ -642,6 +644,18 @@ class RunDecisionIn(BaseModel):
 # --------------------------------------------------------------------------
 # Who runs which race
 # --------------------------------------------------------------------------
+
+class DeviceKeyOut(BaseModel):
+    """The checkpoint code. Operator-only: it is the thing being protected.
+
+    `required` is also published, without the key, on the public event -- a
+    capture screen has to know whether to ask for a code before anybody has
+    typed one, and saying "this door is locked" gives nothing away.
+    """
+    code: str
+    key: Optional[str] = None
+    required: bool = False
+
 
 class RaceCrewMember(BaseModel):
     id: int

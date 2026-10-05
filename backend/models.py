@@ -91,6 +91,14 @@ class Event(Base):
     photo_type = Column(String(32), nullable=True)
     photo_credit = Column(String(120), nullable=True)
 
+    # A code the capture phones must send with their scans, or NULL for "any
+    # phone with the link may scan", which is how race day worked before this
+    # and still does until an organiser turns it on. Deliberately that way
+    # round: a stranger's fake scan is noise an organiser voids in seconds,
+    # while a volunteer at a junction who cannot scan is a race with no
+    # results. The costs are not symmetrical, so neither is the default.
+    read_key = Column(String(16), nullable=True)
+
     # A migration marker, not a setting. Races are closed to unnamed admins,
     # but the races that existed before that rule were open to all of them, so
     # each one gets its crew filled in once -- preserving exactly the access

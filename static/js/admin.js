@@ -327,6 +327,7 @@ function showTab(name, { push = true } = {}) {
   if (name === 'workshops') loadWorkshops();
   if (name === 'entries') loadEntries();
   if (name === 'virtual') loadVirtual();
+  if (name === 'checkpoints') loadDeviceKey();
   if (onRace && isSuper() && RACE_TABS.includes(name) && !crew) loadCrew();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
@@ -2022,3 +2023,75 @@ $('vrCsv').onclick = e => withBusy(e.currentTarget, async () => {
     ok('Downloaded.');
   } catch (err) { vrError(err.message); }
 });
+
+
+/* ---------- the checkpoint code ----------
+
+   Off unless an organiser turns it on. A stranger's fake scan is noise voided
+   from the Reads tab in seconds; a volunteer at a junction who cannot send is
+   a race with no results. So the open path stays, and this is the door for
+   anybody who wants it shut. */
+
+const keyError = m => {
+  $('keyErr').textContent = m || '';
+  $('keyErr').hidden = !m;
+};
+
+async function loadDeviceKey() {
+  if (!ev) return;
+  keyError('');
+  let info;
+  try {
+    info = await api(`/events/${ev.code}/device-key`);
+  } catch (e) { keyError(e.message); return; }
+
+  $('keyState').textContent = info.required
+    ? 'Only phones that have been given the code can send scans to this race.'
+    : 'Any phone with the capture link can send scans to this race. That is '
+      + 'usually what you want on race day \u2014 turn a code on if you would '
+      + 'rather only your own volunteers could.';
+  $('keyShow').hidden = !info.required;
+  $('keyValue').textContent = info.key || '';
+  $('keyOn').hidden = info.required;
+  $('keyRoll').hidden = !info.required;
+  $('keyOff').hidden = !info.required;
+}
+
+$('keyOn').onclick = e => withBusy(e.currentTarget, async () => {
+  keyError('');
+  try {
+    const info = await api(`/events/${ev.code}/device-key`, { method: 'POST' });
+    ok(`The code is ${info.key}. Volunteers type it once on the capture screen.`);
+    loadDeviceKey();
+  } catch (err) { keyError(err.message); }
+});
+
+$('keyRoll').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Give this race a new code?',
+    body: 'Every phone already scanning stops being able to send until the new '
+        + 'code is typed in. Their scans are kept and go up afterwards. Do this '
+        + 'if the old code has got out, not in the middle of a race.',
+    confirm: 'New code',
+  })) return;
+  try {
+    const info = await api(`/events/${ev.code}/device-key`, { method: 'POST' });
+    ok(`The new code is ${info.key}.`);
+    loadDeviceKey();
+  } catch (err) { keyError(err.message); }
+};
+
+$('keyOff').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Let any phone send scans again?',
+    body: 'Anybody with the capture link and this race code will be able to '
+        + 'post scans. They are all visible in Reads and any of them can be '
+        + 'voided, but nothing will stop them arriving.',
+    confirm: 'Stop requiring it',
+  })) return;
+  try {
+    await api(`/events/${ev.code}/device-key`, { method: 'DELETE' });
+    ok('Open scanning again.');
+    loadDeviceKey();
+  } catch (err) { keyError(err.message); }
+};

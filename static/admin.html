@@ -327,6 +327,19 @@
     Checkpoint names must be unique across the whole event, so name them
     <code>5K Finish</code> and <code>10K Finish</code> rather than both <code>Finish</code>.</p>
     <table><tbody id="cpList"></tbody></table>
+
+    <h3>Who may send scans</h3>
+    <p class="note" id="keyState"></p>
+    <p id="keyShow" hidden>The code is
+      <strong id="keyValue" style="letter-spacing:.15em;font-size:1.3rem"></strong>
+      &mdash; read it out to each volunteer as you set their phone up.</p>
+    <p class="fieldErr" id="keyErr" hidden></p>
+    <div class="row" style="margin-bottom:1rem">
+      <button id="keyOn" class="narrow">Require a code</button>
+      <button id="keyRoll" class="narrow" hidden>New code</button>
+      <button id="keyOff" class="quiet danger narrow" hidden>Stop requiring it</button>
+    </div>
+
     <div class="row" style="margin-top:.8rem">
       <div><label for="cpName">Name</label><input id="cpName" placeholder="9 km turn"></div>
       <div><label for="cpRace">Race</label><select id="cpRace"></select></div>

@@ -199,6 +199,7 @@ _add_missing_columns("events", {
 })
 _add_missing_columns("races", {"price_paise": "INTEGER"})
 _add_missing_columns("events", {"crew_default_applied": "BOOLEAN"})
+_add_missing_columns("events", {"read_key": "VARCHAR(16)"})
 # event_operators is a new table, so create_all makes it in full -- there are
 # no columns to add to it. It is named here only so the next person looking for
 # where a schema change goes finds the list complete.
@@ -1832,6 +1833,59 @@ def shipping_csv(code: str, db: Session = Depends(get_db)):
 
 
 # --------------------------------------------------------------------------
+# The checkpoint code
+#
+# Read ingest is open by design -- volunteers scan without accounts, and that
+# is what makes capture work on a borrowed phone at a junction with no signal.
+# The cost is that anybody with the link and a race code can post a scan. This
+# closes that door for organisers who want it closed, without taking the open
+# path away from the ones who do not.
+# --------------------------------------------------------------------------
+
+# No O, 0, I, 1 or L. Somebody is going to read this down a phone line to a
+# volunteer standing in the rain.
+_KEY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def _new_read_key() -> str:
+    return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(6))
+
+
+@app.get("/api/events/{code}/device-key", response_model=schemas.DeviceKeyOut,
+         dependencies=RACE)
+def get_device_key(code: str, db: Session = Depends(get_db)):
+    """The code the capture phones need, for the people running this race."""
+    ev = _get_event(db, code)
+    return schemas.DeviceKeyOut(code=ev.code, key=ev.read_key,
+                                required=bool(ev.read_key))
+
+
+@app.post("/api/events/{code}/device-key", response_model=schemas.DeviceKeyOut,
+          dependencies=RACE)
+def set_device_key(code: str, db: Session = Depends(get_db)):
+    """Turn the code on, or roll it over.
+
+    Rolling it over stops every phone already scanning until it is typed in
+    again, which is the point of rolling it over, so the screen says so first.
+    """
+    ev = _get_event(db, code)
+    ev.read_key = _new_read_key()
+    db.commit()
+    db.refresh(ev)
+    return schemas.DeviceKeyOut(code=ev.code, key=ev.read_key, required=True)
+
+
+@app.delete("/api/events/{code}/device-key", response_model=schemas.DeviceKeyOut,
+            dependencies=RACE)
+def clear_device_key(code: str, db: Session = Depends(get_db)):
+    """Back to open scanning, which is where every race starts."""
+    ev = _get_event(db, code)
+    ev.read_key = None
+    db.commit()
+    return schemas.DeviceKeyOut(code=ev.code, key=None, required=False)
+
+
+# --------------------------------------------------------------------------
 # Who runs this race
 # --------------------------------------------------------------------------
 
@@ -2434,7 +2488,12 @@ def create_event(payload: schemas.EventIn, db: Session = Depends(get_db)):
 
 @app.get("/api/events/{code}", response_model=schemas.EventOut)
 def get_event(code: str, db: Session = Depends(get_db)):
-    return _get_event(db, code)
+    ev = _get_event(db, code)
+    # A computed field, not a column, so the key itself cannot ride out on this
+    # response by somebody adding a column and forgetting this route is public.
+    out = schemas.EventOut.model_validate(ev, from_attributes=True)
+    out.needs_device_key = bool(ev.read_key)
+    return out
 
 
 @app.post("/api/events/{code}/start", response_model=schemas.EventOut, dependencies=RACE)
@@ -2916,7 +2975,8 @@ def mark_dnf(code: str, bib: str, dnf: bool = True, db: Session = Depends(get_db
 # --------------------------------------------------------------------------
 
 @app.post("/api/events/{code}/reads", response_model=schemas.ReadBatchOut)
-def ingest_reads(code: str, payload: schemas.ReadBatchIn, db: Session = Depends(get_db)):
+def ingest_reads(code: str, payload: schemas.ReadBatchIn, request: Request,
+                 db: Session = Depends(get_db)):
     """Accept a batch of sightings from any capture source.
 
     Deliberately shaped so that a QR scan from a phone, a manual bib entry by a
@@ -2930,6 +2990,14 @@ def ingest_reads(code: str, payload: schemas.ReadBatchIn, db: Session = Depends(
     everything in its queue.
     """
     ev = _get_event(db, code)
+    if ev.read_key:
+        # Constant-time, because this is the one check standing between the
+        # open internet and a race's timing data.
+        offered = request.headers.get("X-Device-Key", "")
+        if not secrets.compare_digest(offered.strip().upper(), ev.read_key):
+            raise HTTPException(
+                403, "This race needs a checkpoint code. Ask the organiser for "
+                     "it and enter it on the capture screen.")
     valid_cps = {c.id for c in ev.checkpoints}
     known_bibs = {p.bib for p in ev.participants}
 

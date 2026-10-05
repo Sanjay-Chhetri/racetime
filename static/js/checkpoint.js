@@ -1,4 +1,5 @@
-import { queue, makeSyncer, measureClockOffset, correctedNow, uuid } from '/js/store.js';
+import { queue, makeSyncer, measureClockOffset, correctedNow, uuid, deviceKey }
+  from '/js/store.js';
 import { confirmDialog } from '/js/ui.js';
 
 const $ = id => document.getElementById(id);
@@ -62,6 +63,11 @@ async function chooseEvent(code) {
     }
     loadedEvent = ev;
 
+    // Ask for the code only when this race wants one, and remember it per
+    // race so a phone used at two events does not need re-typing each time.
+    $('keyWrap').hidden = !ev.needs_device_key;
+    if (ev.needs_device_key) $('devKey').value = deviceKey.get(code);
+
     // A race picker only earns its place when there is a choice to make.
     const races = ev.races || [];
     if (races.length > 1) {
@@ -108,10 +114,44 @@ function fillCheckpoints() {
 $('event').onchange = e => chooseEvent(e.target.value);
 $('race').onchange = fillCheckpoints;
 
-$('go').onclick = () => {
+$('go').onclick = async () => {
   if (!loadedEvent) return;
   const cp = loadedEvent.checkpoints.find(c => String(c.id) === $('cp').value);
-  if (cp) begin(loadedEvent, cp);
+  if (!cp) return;
+
+  // Check the code now, at a table with a signal, rather than letting somebody
+  // scan for an hour at a junction and discover at the end that none of it
+  // could be sent.
+  if (loadedEvent.needs_device_key) {
+    const key = $('devKey').value.trim().toUpperCase();
+    if (!key) {
+      $('setupErr').textContent = 'This race needs a checkpoint code.';
+      $('devKey').focus();
+      return;
+    }
+    $('setupErr').textContent = 'Checking the code…';
+    try {
+      const res = await fetch(`/api/events/${encodeURIComponent(loadedEvent.code)}/reads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Device-Key': key },
+        // An empty batch writes nothing, so this is a question, not a change.
+        body: JSON.stringify({ reads: [] }),
+      });
+      if (res.status === 403) {
+        $('setupErr').textContent = 'That code is not right for this race.';
+        $('devKey').focus();
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch {
+      $('setupErr').textContent =
+        'Could not check the code. Find a signal and try again.';
+      return;
+    }
+    deviceKey.set(loadedEvent.code, key);
+    $('setupErr').textContent = '';
+  }
+  begin(loadedEvent, cp);
 };
 
 // The typed-code fallback, used only when the list could not be fetched.
@@ -155,10 +195,15 @@ function startCapture() {
   $('capture').hidden = false;
   $('cpName').textContent = cfg.cpName;
 
-  syncer = makeSyncer(cfg.code, ({ state, pending }) => {
+  syncer = makeSyncer(cfg.code, ({ state, pending, error }) => {
     const el = $('status');
-    el.className = 'pill ' + state;
-    el.textContent = state === 'synced' ? 'all sent'
+    // A wrong code looks exactly like a bad signal from here -- the queue grows
+    // and nothing sends -- so it gets its own words. Every scan is still safe
+    // in the queue and goes up the moment the code is right.
+    const badKey = String(error || '').includes('BADKEY');
+    el.className = 'pill ' + (badKey ? 'queued' : state);
+    el.textContent = badKey ? `code wrong · ${pending} held`
+      : state === 'synced' ? 'all sent'
       : state === 'offline' ? `offline · ${pending}`
       : `sending · ${pending}`;
   });

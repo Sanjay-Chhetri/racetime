@@ -1106,6 +1106,47 @@ virtual race, their home address.
   **workshops and the visitor numbers moved to super admin** — an admin
   brought in to run one race does not inherit the site with it.
 
+### FR-27 — The checkpoint code
+
+Read ingest is open by design (see [8.1](#81-why-read-ingest-is-open)):
+volunteers scan without accounts, which is what lets capture work on a borrowed
+phone at a junction with no signal. The price is that anybody with the link and
+a race code can post a scan. This closes that door for organisers who want it
+closed, without taking the open path away from the ones who do not.
+
+- **FR-27.1** A race may have a **checkpoint code**. Until an organiser turns
+  one on, scanning is open exactly as before.
+- **FR-27.2** **Open is the right default here, and closed was the right
+  default for race admins.** The costs are not symmetrical: a stranger's fake
+  scan is noise an organiser voids from the Reads tab in seconds, while a
+  volunteer who cannot send is a race with no results.
+- **FR-27.3** The code is **six characters from an alphabet with no O, 0, I, 1
+  or L**, because somebody will read it down a phone line to a volunteer
+  standing in the rain. It is accepted in any case.
+- **FR-27.4** Every capture source sends it the same way, in an `X-Device-Key`
+  header — the phone, and the RFID bridge with `--key`. One ingest path, as
+  NFR-3 requires.
+- **FR-27.5** It is compared in **constant time**: this is the one check
+  standing between the open internet and a race's timing.
+- **FR-27.6** **The capture screen checks the code before capture starts**, by
+  posting an empty batch — which writes nothing. Finding out at the end of a
+  morning that an hour of scanning cannot be sent is the failure worth
+  designing against.
+- **FR-27.7** A wrong code mid-race is **named as a wrong code**, not shown as
+  a bad signal. The scans stay queued and go up the moment it is corrected.
+- **FR-27.8** The code is remembered per race on the device, so a phone lent to
+  a different event next weekend does not carry the wrong one.
+- **FR-27.9** **The public event says whether a code is needed, never what it
+  is.** A capture screen has to know whether to ask before anybody has typed
+  anything, and saying "this door is locked" gives nothing away. The field is
+  computed on the response rather than stored on the model, so a later column
+  cannot ride out on a public route by accident.
+- **FR-27.10** Reading, setting and clearing the code is **race-scoped**
+  (FR-26): an admin who is not on the race cannot see it.
+- **FR-27.11** Rolling the code over stops every phone already scanning until
+  it is typed again. That is the point of rolling it over, so the screen says
+  so before it happens.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -1265,6 +1306,14 @@ the role. Interactive docs at `/docs` while the server runs.
 | ⭐ | `GET` | `/api/events/{code}/operators` | Who runs this race, and which admins could |
 | ⭐ | `PUT` | `/api/events/{code}/operators` | Replace that list; an empty list reopens the race to every admin |
 
+### The checkpoint code
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| 🔒 | `GET` | `/api/events/{code}/device-key` | The code, for the people running this race |
+| 🔒 | `POST` | `/api/events/{code}/device-key` | Turn it on, or roll it over |
+| 🔒 | `DELETE` | `/api/events/{code}/device-key` | Back to open scanning |
+
 ### Messages
 
 | | Method | Path | Purpose |
@@ -1419,7 +1468,6 @@ the part that remains.
 | Year grouping of events | Not built. Only useful across multiple seasons |
 | SMS notification | Not built. Email notices are (FR-25); nothing goes by SMS |
 | Email, in practice | Built but **switched off**: no SMTP is configured, so every notice is a no-op and the admin screen says so |
-| Checkpoint device credentials | Not built. Ingest is open on purpose, see [8.1](#81-why-read-ingest-is-open) |
 | Age-group awards | Partially covered by category ranking |
 
 None of these require a data-model change; all are additive.
@@ -1436,7 +1484,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **729 assertions** — 440 against the API, 289 driving a real
+carry **777 assertions** — 473 against the API, 304 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1495,6 +1543,10 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | what cannot be assigned | a runner (`422`, told to be made an admin first), a super admin, an unknown id; none of them change the list |
 | | the public side | results, the listing and the start list unchanged; entries still `401` to the public |
 | **Per-race admins in the browser** | Chromium, 34 checks | the picker offers his race and not hers; the other race's address shows one message instead of a screen of refusals; Members, Workshops and Visitors are gone for an admin and Messages is not |
+| **The checkpoint code** | 33 checks over the API | off on a new race and anybody may scan; once on, a scan with no code or a wrong code is `403` naming the organiser; the right one in any case is accepted |
+| | what it never reaches | absent from the public event, the listing and the results, and unreadable by the public, a runner, or an admin who is not on the race |
+| | rolling and clearing | the old code stops at once; clearing it restores open scanning |
+| **The capture screen** | Chromium at 390 px, 15 checks | no code asked for when none is set; a wrong one refused **before** capture starts; the right one, typed in lower case, starts the day and a bib reaches the server |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through

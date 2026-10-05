@@ -36,11 +36,16 @@ import json
 REPEAT_WINDOW_S = 6.0
 
 
-def post_reads(api, event, reads):
+def post_reads(api, event, reads, device_key=None):
     body = json.dumps({"reads": reads}).encode()
+    headers = {"Content-Type": "application/json"}
+    # The same checkpoint code the phones use, when the race requires one. A
+    # mat is just another capture device as far as the server is concerned.
+    if device_key:
+        headers["X-Device-Key"] = device_key.strip().upper()
     req = urllib.request.Request(
         f"{api}/api/events/{event}/reads",
-        data=body, headers={"Content-Type": "application/json"}, method="POST",
+        data=body, headers=headers, method="POST",
     )
     with urllib.request.urlopen(req, timeout=10) as res:
         return json.load(res)
@@ -83,7 +88,7 @@ def run(args):
         if not pending:
             return
         try:
-            out = post_reads(args.api, args.event, pending)
+            out = post_reads(args.api, args.event, pending, args.key)
             print(f"  -> sent {out['accepted']}, duplicates {out['duplicates']}")
             pending.clear()
         except Exception as e:
@@ -141,5 +146,7 @@ if __name__ == "__main__":
     ap.add_argument("--antennas", default="1,2")
     ap.add_argument("--map", help="CSV of epc,bib")
     ap.add_argument("--simulate", action="store_true", help="fake a mat, no hardware")
+    ap.add_argument("--key", default=None,
+                    help="checkpoint code, if the race requires one")
     ap.add_argument("--interval", type=float, default=1.0)
     run(ap.parse_args())
