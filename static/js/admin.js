@@ -93,7 +93,7 @@ function renderAccount() {
   // the server is going to refuse. The check that counts is on the server;
   // this only stops the interface offering a dead end.
   $('createWrap').hidden = !me.can_create_events;
-  $('tab-members').hidden = !me.can_manage_users;
+  SUPER_TABS.forEach(t => { $('tab-' + t).hidden = !me.can_manage_users; });
 
   $('pwNag').hidden = !u.must_change_password;
 }
@@ -162,12 +162,16 @@ $('code').addEventListener('keydown', e => {
    nobody remembers whether it was kpg10k or kpg-10k, and a wrong code just
    reports that the event does not exist. */
 
+let myCodes = null;        // the races this operator may run, or null if unknown
+
 async function loadEventPicker(selected) {
   const sel = $('pickEvent');
   try {
-    // The full listing is admin-only; a picker only needs codes and names, so
-    // this works whether or not the browser is unlocked.
-    const events = await fetch('/api/events/public').then(r => r.json());
+    // Deliberately the scoped listing, not /api/events/public: an admin who
+    // runs two of five races should be offered two. A race they cannot open
+    // is not information, it is a locked door with their name on it.
+    const events = await api('/events');
+    myCodes = new Set(events.map(e => e.code));
     if (!Array.isArray(events) || !events.length) {
       sel.innerHTML = '<option value="">No races yet — create one below</option>';
       return;
@@ -180,6 +184,71 @@ async function loadEventPicker(selected) {
     sel.innerHTML = '<option value="">Could not load the list</option>';
   }
 }
+
+/* ---------- who runs this race ---------- */
+
+let crew = null;
+
+const crewError = m => {
+  $('crewErr').textContent = m || '';
+  $('crewErr').hidden = !m;
+};
+
+async function loadCrew() {
+  if (!ev || !isSuper()) { $('crewPanel').hidden = true; return; }
+  crewError('');
+  try {
+    crew = await api(`/events/${ev.code}/operators`);
+  } catch (e) { crewError(e.message); return; }
+
+  const all = [...crew.assigned, ...crew.available]
+    .sort((a, b) => a.display_name.localeCompare(b.display_name));
+  const on = new Set(crew.assigned.map(m => m.id));
+
+  // "Nobody assigned" and "nobody allowed" look identical in a column of
+  // unticked boxes, so the state is spelled out rather than implied.
+  $('crewState').textContent = crew.open_to_all
+    ? 'Nobody is assigned, so every admin can run this race. Tick the people '
+      + 'who should run it and only they will be able to.'
+    : `${crew.assigned.length} of ${all.length} admins can run this race. `
+      + 'The others cannot open it at all.';
+
+  $('crewList').innerHTML = all.length
+    ? all.map(m => `<label class="check">
+        <input type="checkbox" data-crew="${m.id}"${on.has(m.id) ? ' checked' : ''}>
+        ${esc(m.display_name)} <span class="note">${esc(m.username)}</span></label>`).join('')
+    : '<p class="note">There are no admin accounts yet. Add one under '
+      + 'Members, then come back.</p>';
+  $('crewOpen').hidden = crew.open_to_all;
+  $('crewPanel').hidden = false;
+}
+
+async function saveCrew(ids) {
+  crewError('');
+  try {
+    crew = await api(`/events/${ev.code}/operators`,
+                     json('PUT', { user_ids: ids }));
+    ok(crew.open_to_all
+      ? 'Open to every admin again.'
+      : `${crew.assigned.length} admin${crew.assigned.length === 1 ? '' : 's'} `
+        + 'can run this race.');
+    loadCrew();
+  } catch (e) { crewError(e.message); }
+}
+
+$('crewSave').onclick = e => withBusy(e.currentTarget, () => saveCrew(
+  [...document.querySelectorAll('[data-crew]:checked')]
+    .map(b => Number(b.dataset.crew))));
+
+$('crewOpen').onclick = async () => {
+  if (!await confirmDialog({
+    title: 'Open this race to every admin?',
+    body: 'Anybody with an admin account will be able to run it, which is how '
+        + 'a race with nobody assigned behaves.',
+    confirm: 'Open it',
+  })) return;
+  saveCrew([]);
+};
 
 $('pickEvent').onchange = e => { if (e.target.value) load(e.target.value); };
 
@@ -210,6 +279,11 @@ $('create').onclick = e => withBusy(e.currentTarget, async () => {
 const RACE_TABS = ['runners', 'entries', 'races', 'checkpoints',
                    'artwork', 'virtual', 'reads'];
 const OPS_TABS = ['members', 'workshops', 'analytics', 'messages', 'account'];
+// Screens that belong to the whole site rather than to one race. Sanjay's
+// call: the one shared inbox stays open to every admin, while the workshops
+// and the visitor numbers sit with the super admins -- an admin brought in to
+// run one race does not inherit the site with it.
+const SUPER_TABS = ['members', 'workshops', 'analytics'];
 const TABS = [...RACE_TABS, ...OPS_TABS];
 let tab = 'runners';
 
@@ -217,7 +291,7 @@ function showTab(name, { push = true } = {}) {
   if (!TABS.includes(name)) name = ev ? RACE_TABS[0] : 'account';
   // Typing #code/members must not open a screen the account cannot use. The
   // server refuses its endpoints anyway; this stops the empty shell appearing.
-  if (name === 'members' && !isSuper()) name = ev ? RACE_TABS[0] : 'account';
+  if (SUPER_TABS.includes(name) && !isSuper()) name = ev ? RACE_TABS[0] : 'account';
   // A race tab with no race open would be five empty panels.
   if (RACE_TABS.includes(name) && !ev) name = 'account';
   tab = name;
@@ -236,6 +310,7 @@ function showTab(name, { push = true } = {}) {
   const onRace = Boolean(ev);
   RACE_TABS.forEach(t => { $('tab-' + t).hidden = !onRace; });
   $('schedulePanel').hidden = !(onRace && RACE_TABS.includes(name));
+  $('crewPanel').hidden = !(onRace && isSuper() && RACE_TABS.includes(name));
   $('event').hidden = !(onRace && RACE_TABS.includes(name));
   $('chooser').hidden = onRace;
 
@@ -251,6 +326,7 @@ function showTab(name, { push = true } = {}) {
   if (name === 'workshops') loadWorkshops();
   if (name === 'entries') loadEntries();
   if (name === 'virtual') loadVirtual();
+  if (onRace && isSuper() && RACE_TABS.includes(name) && !crew) loadCrew();
   // The bib preview measures its container, which is zero-wide while hidden.
   if (name === 'artwork') renderPreview();
 }
@@ -294,9 +370,26 @@ $('switchEvent').onclick = () => {
 async function load(code, wantTab) {
   if (!code) return;
   $('err').textContent = '';
+  // The event's own details are public, so this would succeed for a race this
+  // admin cannot run -- and then every panel on the screen would refuse them
+  // one request at a time. Say it once, here, instead.
+  //
+  // The list has to be in hand first. Opening #somerace/runners straight from
+  // the address bar calls this while the picker is still loading, and a guard
+  // that is skipped because the answer has not arrived yet is not a guard.
+  if (myCodes === null) await loadEventPicker(code);
+  if (myCodes && !myCodes.has(code)) {
+    ev = null;
+    crew = null;
+    $('err').textContent = `You are not one of the people running '${code}'. `
+      + 'Ask a super admin to add you to it.';
+    showTab('account');
+    return;
+  }
   try {
     ev = await api('/events/' + code);
   } catch (e) { $('err').textContent = e.message; return; }
+  crew = null;              // a different race has a different crew
   if ($('pickEvent').options.length > 1) $('pickEvent').value = code;
   $('code').value = code;
   // Which containers are visible is showTab's job now, since the operator

@@ -104,6 +104,11 @@ for phrase, why in [
     ("325 assertions", "the suites have grown again"),
     ("Virtual races | Not built", "virtual races are built"),
     ("13 tables", "the table count has changed"),
+    ("14 tables", "the table count has changed"),
+    ("Roles are also global rather than per-event",
+     "races have named operators now"),
+    ("Per-event roles | Not built", "per-race admins are built"),
+    ("642 assertions", "the suites have grown again"),
     ("Race photography | Not built", "races carry a photograph now"),
     ("10 tables", "the table count has changed"),
 ]:

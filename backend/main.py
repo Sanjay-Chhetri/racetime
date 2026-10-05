@@ -198,6 +198,9 @@ _add_missing_columns("events", {
     "payment_qr_type": "VARCHAR(32)",
 })
 _add_missing_columns("races", {"price_paise": "INTEGER"})
+# event_operators is a new table, so create_all makes it in full -- there are
+# no columns to add to it. It is named here only so the next person looking for
+# where a schema change goes finds the list complete.
 _add_missing_columns("registrations", {
     "payment_status": "VARCHAR(10)",
     "amount_paise": "INTEGER",
@@ -433,6 +436,114 @@ async def _attach_user(request: Request, call_next):
 ADMIN = auth.ADMIN          # admin or super admin
 SUPER = auth.SUPER          # super admin only
 
+# --------------------------------------------------------------------------
+# Who may run which race
+#
+# A super admin may run anything: they create races and manage accounts, and
+# scoping them would lock an organisation out of its own event.
+#
+# An admin may run a race when **nobody is assigned to it** -- which is how
+# every race behaved before this existed, so nothing broke when it arrived --
+# or when they are one of the people assigned. Assigning somebody is therefore
+# what closes a race, and emptying the list opens it again.
+#
+# The check is a dependency rather than a line inside each handler, because
+# there are more than thirty race-level endpoints and a line forgotten in one
+# of them is not a bug, it is a hole. A route either carries one of these or it
+# is not race-scoped, which is a thing a test can enumerate and check.
+# --------------------------------------------------------------------------
+
+def assigned_operator_ids(db: Session, event: Event) -> set:
+    return {r.user_id for r in db.query(models.EventOperator)
+            .filter(models.EventOperator.event_id == event.id).all()}
+
+
+def may_run(db: Session, user: Optional[models.User], event: Event) -> bool:
+    if user is None or not user.is_operator:
+        return False
+    if user.is_super:
+        return True
+    assigned = assigned_operator_ids(db, event)
+    return not assigned or user.id in assigned
+
+
+def _deny_race(event: Event):
+    # Names the race, because an admin who has been given two of five needs to
+    # know which one they just bounced off.
+    raise HTTPException(
+        403, f"You are not one of the people running '{event.code}'. "
+             f"Ask a super admin to add you to it.")
+
+
+def require_race(code: str, user: models.User = Depends(auth.require_admin),
+                 db: Session = Depends(get_db)) -> Event:
+    ev = _get_event(db, code)
+    if not may_run(db, user, ev):
+        _deny_race(ev)
+    return ev
+
+
+def _via(event: Optional[Event], user: models.User, db: Session,
+         missing: str) -> Event:
+    if event is None:
+        raise HTTPException(404, missing)
+    if not may_run(db, user, event):
+        _deny_race(event)
+    return event
+
+
+def require_race_of_race(race_id: int,
+                         user: models.User = Depends(auth.require_admin),
+                         db: Session = Depends(get_db)) -> Event:
+    row = db.get(Race, race_id)
+    return _via(row.event if row else None, user, db, "No such race.")
+
+
+def require_race_of_checkpoint(cp_id: int,
+                               user: models.User = Depends(auth.require_admin),
+                               db: Session = Depends(get_db)) -> Event:
+    row = db.get(Checkpoint, cp_id)
+    return _via(row.event if row else None, user, db, "No such checkpoint.")
+
+
+def require_race_of_participant(pid: int,
+                                user: models.User = Depends(auth.require_admin),
+                                db: Session = Depends(get_db)) -> Event:
+    row = db.get(Participant, pid)
+    return _via(row.event if row else None, user, db, "No such runner.")
+
+
+def require_race_of_registration(reg_id: int,
+                                 user: models.User = Depends(auth.require_admin),
+                                 db: Session = Depends(get_db)) -> Event:
+    row = db.get(models.Registration, reg_id)
+    return _via(row.event if row else None, user, db, "No such entry.")
+
+
+def require_race_of_read(read_id: str,
+                         user: models.User = Depends(auth.require_admin),
+                         db: Session = Depends(get_db)) -> Event:
+    row = db.get(Read, read_id)
+    return _via(row.event if row else None, user, db, "No such read.")
+
+
+def require_race_of_run(run_id: int,
+                        user: models.User = Depends(auth.require_admin),
+                        db: Session = Depends(get_db)) -> Event:
+    row = db.get(models.RunSubmission, run_id)
+    reg = row.registration if row else None
+    return _via(reg.event if reg else None, user, db, "No such run.")
+
+
+RACE = [Depends(require_race)]
+RACE_OF_RACE = [Depends(require_race_of_race)]
+RACE_OF_CHECKPOINT = [Depends(require_race_of_checkpoint)]
+RACE_OF_PARTICIPANT = [Depends(require_race_of_participant)]
+RACE_OF_REGISTRATION = [Depends(require_race_of_registration)]
+RACE_OF_READ = [Depends(require_race_of_read)]
+RACE_OF_RUN = [Depends(require_race_of_run)]
+
+
 
 def _me(user: models.User) -> schemas.MeOut:
     return schemas.MeOut(
@@ -609,7 +720,7 @@ def delete_user(user_id: int,
     return Response(status_code=204)
 
 
-@app.get("/api/analytics", dependencies=ADMIN)
+@app.get("/api/analytics", dependencies=SUPER)
 def site_analytics(days: int = 30, db: Session = Depends(get_db)):
     """Traffic for the whole site.
 
@@ -956,7 +1067,7 @@ def upcoming_events(request: Request, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/events/{code}/schedule", response_model=schemas.EventOut,
-           dependencies=ADMIN)
+           dependencies=RACE)
 def set_schedule(code: str, payload: schemas.EventScheduleIn,
                  db: Session = Depends(get_db)):
     ev = _get_event(db, code)
@@ -1026,8 +1137,9 @@ def withdraw(reg_id: int, user: models.User = Depends(auth.require_user),
     reg = db.get(models.Registration, reg_id)
     if reg is None:
         raise HTTPException(404, "No such entry.")
-    # A runner may withdraw their own; an organiser may withdraw anyone's.
-    if reg.user_id != user.id and not user.is_operator:
+    # A runner may withdraw their own; an organiser may withdraw anyone's --
+    # but only in a race they are running, not in somebody else's.
+    if reg.user_id != user.id and not may_run(db, user, reg.event):
         raise HTTPException(403, "That is not your entry.")
     reg.status = "withdrawn"
     reg.decided_at = utcnow()
@@ -1042,7 +1154,7 @@ def withdraw(reg_id: int, user: models.User = Depends(auth.require_user),
 
 
 @app.get("/api/events/{code}/registrations",
-         response_model=List[schemas.RegistrationOut], dependencies=ADMIN)
+         response_model=List[schemas.RegistrationOut], dependencies=RACE)
 def list_registrations(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     rows = (db.query(models.Registration)
@@ -1053,7 +1165,7 @@ def list_registrations(code: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/registrations/{reg_id}", response_model=schemas.RegistrationOut,
-           dependencies=ADMIN)
+           dependencies=RACE_OF_REGISTRATION)
 def decide_registration(reg_id: int, payload: schemas.RegistrationDecision,
                         background: BackgroundTasks,
                         db: Session = Depends(get_db)):
@@ -1179,11 +1291,16 @@ def _price_of(db: Session, race_id: Optional[int]) -> int:
 
 def _get_registration(db: Session, reg_id: int,
                       user: models.User) -> models.Registration:
-    """Somebody's own entry, or anybody's if you are an operator."""
+    """Somebody's own entry, or anybody's in a race you are running.
+
+    Not "anybody's if you are an operator": this reaches what somebody owes,
+    the reference number they paid with, and the runs they have sent in. An
+    admin running a different race is a stranger to all of it.
+    """
     reg = db.get(models.Registration, reg_id)
     if reg is None:
         raise HTTPException(404, "No such entry.")
-    if reg.user_id != user.id and not user.is_operator:
+    if reg.user_id != user.id and not may_run(db, user, reg.event):
         raise HTTPException(403, "That is not your entry.")
     return reg
 
@@ -1204,7 +1321,7 @@ def _run_out(r: models.RunSubmission) -> schemas.RunOut:
 
 
 @app.get("/api/events/{code}/virtual", response_model=schemas.VirtualSetupOut,
-         dependencies=ADMIN)
+         dependencies=RACE)
 def get_virtual(code: str, db: Session = Depends(get_db)):
     """The virtual settings, including how entrants are asked to pay.
 
@@ -1235,7 +1352,7 @@ def _tell(background: BackgroundTasks, user: Optional[models.User],
 
 
 @app.patch("/api/events/{code}/virtual",
-           response_model=schemas.VirtualSetupOut, dependencies=ADMIN)
+           response_model=schemas.VirtualSetupOut, dependencies=RACE)
 def set_virtual(code: str, payload: schemas.VirtualSetupIn,
                 db: Session = Depends(get_db)):
     """Make an event a virtual race, and say how to pay for it.
@@ -1264,7 +1381,7 @@ def set_virtual(code: str, payload: schemas.VirtualSetupIn,
 
 
 @app.post("/api/events/{code}/payment-qr",
-          response_model=schemas.VirtualSetupOut, dependencies=ADMIN)
+          response_model=schemas.VirtualSetupOut, dependencies=RACE)
 async def upload_payment_qr(code: str, file: UploadFile = File(...),
                             db: Session = Depends(get_db)):
     """The organiser's own UPI QR code, as an image.
@@ -1300,7 +1417,10 @@ def get_payment_qr(code: str, request: Request, db: Session = Depends(get_db)):
     viewer = auth.optional_user(request, db)
     if viewer is None:
         raise HTTPException(401, "Sign in to see how to pay.")
-    if not viewer.is_operator:
+    # An operator of *this* race, not of any race: the QR is the organiser's
+    # own collection handle, and an admin brought in to run a different event
+    # has no more claim on it than a stranger.
+    if not may_run(db, viewer, ev):
         mine = (db.query(models.Registration)
                 .filter(models.Registration.event_id == ev.id,
                         models.Registration.user_id == viewer.id,
@@ -1317,7 +1437,7 @@ def get_payment_qr(code: str, request: Request, db: Session = Depends(get_db)):
     )
 
 
-@app.delete("/api/events/{code}/payment-qr", status_code=204, dependencies=ADMIN)
+@app.delete("/api/events/{code}/payment-qr", status_code=204, dependencies=RACE)
 def delete_payment_qr(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     ev.payment_qr_blob = None
@@ -1372,7 +1492,7 @@ def claim_payment(reg_id: int, payload: schemas.PaymentClaimIn,
 
 
 @app.patch("/api/registrations/{reg_id}/payment",
-           response_model=schemas.RegistrationOut, dependencies=ADMIN)
+           response_model=schemas.RegistrationOut, dependencies=RACE_OF_REGISTRATION)
 def decide_payment(reg_id: int, payload: schemas.PaymentDecisionIn,
                    background: BackgroundTasks,
                    db: Session = Depends(get_db)):
@@ -1532,11 +1652,20 @@ def run_evidence(run_id: int, user: models.User = Depends(auth.require_user),
     road outside their house on it. Results are public; this is not.
     """
     run = db.get(models.RunSubmission, run_id)
-    if run is None or not run.evidence_blob:
-        raise HTTPException(404, "No evidence for that run")
+    if run is None:
+        raise HTTPException(404, "No such run")
+    # Permission before existence. Whether a particular run has a screenshot
+    # attached is not much to learn, but it is still somebody else's business,
+    # and answering 404 to an outsider and 403 to them for the same row is the
+    # kind of difference that tells you which rows exist.
     reg = run.registration
-    if reg is None or (reg.user_id != user.id and not user.is_operator):
+    if reg is None or (reg.user_id != user.id
+                       and not may_run(db, user, reg.event)):
+        # Somebody's movements, often with the road outside their house on the
+        # screenshot. An operator of another race has no business with it.
         raise HTTPException(403, "That is not yours to look at.")
+    if not run.evidence_blob:
+        raise HTTPException(404, "No evidence for that run")
     return Response(
         content=run.evidence_blob,
         media_type=run.evidence_type or "image/jpeg",
@@ -1544,7 +1673,7 @@ def run_evidence(run_id: int, user: models.User = Depends(auth.require_user),
     )
 
 
-@app.patch("/api/runs/{run_id}", response_model=schemas.RunOut, dependencies=ADMIN)
+@app.patch("/api/runs/{run_id}", response_model=schemas.RunOut, dependencies=RACE_OF_RUN)
 def decide_run(run_id: int, payload: schemas.RunDecisionIn,
                background: BackgroundTasks,
                db: Session = Depends(get_db)):
@@ -1594,14 +1723,15 @@ def delete_run(run_id: int, user: models.User = Depends(auth.require_user),
     if run is None:
         return
     reg = run.registration
-    if reg is None or (reg.user_id != user.id and not user.is_operator):
+    if reg is None or (reg.user_id != user.id
+                       and not may_run(db, user, reg.event)):
         raise HTTPException(403, "That is not your run.")
     db.delete(run)
     db.commit()
 
 
 @app.get("/api/events/{code}/runs", response_model=List[schemas.RunOut],
-         dependencies=ADMIN)
+         dependencies=RACE)
 def event_runs(code: str, status: Optional[str] = None,
                db: Session = Depends(get_db)):
     """Every submission for a race, newest first. `?status=flagged` to review."""
@@ -1616,7 +1746,7 @@ def event_runs(code: str, status: Optional[str] = None,
     return [_run_out(r) for r in rows]
 
 
-@app.get("/api/events/{code}/shipping.csv", dependencies=ADMIN)
+@app.get("/api/events/{code}/shipping.csv", dependencies=RACE)
 def shipping_csv(code: str, db: Session = Depends(get_db)):
     """Addresses for posting medals, for the people who have finished.
 
@@ -1651,6 +1781,84 @@ def shipping_csv(code: str, db: Session = Depends(get_db)):
                  f'attachment; filename="{ev.code}-shipping.csv"',
                  "Cache-Control": "no-store"},
     )
+
+
+# --------------------------------------------------------------------------
+# Who runs this race
+# --------------------------------------------------------------------------
+
+@app.get("/api/events/{code}/operators", response_model=schemas.RaceCrewOut,
+         dependencies=SUPER)
+def race_crew(code: str, db: Session = Depends(get_db)):
+    """The admins assigned to this race, and the ones who could be.
+
+    Super admins are not in either list: they can run everything, so offering
+    to assign them would imply it could be taken away.
+    """
+    ev = _get_event(db, code)
+    assigned = assigned_operator_ids(db, ev)
+    admins = (db.query(models.User)
+              .filter(models.User.role == "admin",
+                      models.User.is_active.is_(True))
+              .order_by(models.User.username).all())
+    return schemas.RaceCrewOut(
+        code=ev.code,
+        assigned=[schemas.RaceCrewMember(
+            id=u.id, username=u.username,
+            display_name=u.display_name or u.username, on=u.id in assigned)
+            for u in admins if u.id in assigned],
+        available=[schemas.RaceCrewMember(
+            id=u.id, username=u.username,
+            display_name=u.display_name or u.username, on=False)
+            for u in admins if u.id not in assigned],
+        open_to_all=not assigned,
+    )
+
+
+@app.put("/api/events/{code}/operators", response_model=schemas.RaceCrewOut,
+         dependencies=SUPER)
+def set_race_crew(code: str, payload: schemas.RaceCrewIn,
+                  db: Session = Depends(get_db)):
+    """Replace the list of people running this race.
+
+    One call for the whole set rather than add-one and remove-one, because the
+    screen is a column of tick boxes and a half-applied set is a race somebody
+    cannot get into.
+
+    **An empty list opens the race to every admin again** -- it is not a way to
+    lock everybody out. Locking the organisation out of its own race is not a
+    state worth being able to reach by accident.
+    """
+    ev = _get_event(db, code)
+    wanted = set(payload.user_ids)
+
+    if wanted:
+        rows = (db.query(models.User)
+                .filter(models.User.id.in_(wanted)).all())
+        found = {u.id for u in rows}
+        missing = wanted - found
+        if missing:
+            raise HTTPException(422, f"No account with id {sorted(missing)[0]}.")
+        for u in rows:
+            if not u.is_operator:
+                raise HTTPException(
+                    422, f"{u.username} is a runner, not an admin. Make them an "
+                         f"admin first, under Members.")
+            if u.is_super:
+                raise HTTPException(
+                    422, f"{u.username} is a super admin and can already run "
+                         f"every race. Assigning them would suggest that could "
+                         f"be taken away.")
+            if not u.is_active:
+                raise HTTPException(
+                    422, f"{u.username}'s account is disabled.")
+
+    db.query(models.EventOperator).filter(
+        models.EventOperator.event_id == ev.id).delete(synchronize_session=False)
+    for uid in sorted(wanted):
+        db.add(models.EventOperator(event_id=ev.id, user_id=uid))
+    db.commit()
+    return race_crew(code, db)
 
 
 # --------------------------------------------------------------------------
@@ -1829,7 +2037,7 @@ def get_workshop(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/api/workshops", response_model=schemas.WorkshopOut, status_code=201,
-          dependencies=ADMIN)
+          dependencies=SUPER)
 def create_workshop(payload: schemas.WorkshopIn, request: Request,
                     db: Session = Depends(get_db)):
     base = re.sub(r"[^a-z0-9]+", "-", payload.title.lower()).strip("-")[:48] or "workshop"
@@ -1845,7 +2053,7 @@ def create_workshop(payload: schemas.WorkshopIn, request: Request,
 
 
 @app.patch("/api/workshops/{slug}", response_model=schemas.WorkshopOut,
-           dependencies=ADMIN)
+           dependencies=SUPER)
 def update_workshop(slug: str, payload: schemas.WorkshopPatch, request: Request,
                     db: Session = Depends(get_db)):
     w = _get_workshop(db, slug)
@@ -1862,7 +2070,7 @@ def update_workshop(slug: str, payload: schemas.WorkshopPatch, request: Request,
     return _ws_out(db, w, auth.optional_user(request, db))
 
 
-@app.delete("/api/workshops/{slug}", status_code=204, dependencies=ADMIN)
+@app.delete("/api/workshops/{slug}", status_code=204, dependencies=SUPER)
 def delete_workshop(slug: str, db: Session = Depends(get_db)):
     w = _get_workshop(db, slug)
     attended = (db.query(models.WorkshopRegistration)
@@ -1881,7 +2089,7 @@ def delete_workshop(slug: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/workshops/{slug}/cover", response_model=schemas.WorkshopOut,
-          dependencies=ADMIN)
+          dependencies=SUPER)
 async def upload_workshop_cover(slug: str, request: Request,
                                 file: UploadFile = File(...),
                                 db: Session = Depends(get_db)):
@@ -1988,7 +2196,7 @@ def my_workshops(user: models.User = Depends(auth.require_user),
 
 
 @app.get("/api/workshops/{slug}/registrations",
-         response_model=List[schemas.WorkshopRegistrationOut], dependencies=ADMIN)
+         response_model=List[schemas.WorkshopRegistrationOut], dependencies=SUPER)
 def workshop_registrations(slug: str, db: Session = Depends(get_db)):
     w = _get_workshop(db, slug)
     rows = (db.query(models.WorkshopRegistration)
@@ -1998,7 +2206,7 @@ def workshop_registrations(slug: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/workshop-registrations/{reg_id}",
-           response_model=schemas.WorkshopRegistrationOut, dependencies=ADMIN)
+           response_model=schemas.WorkshopRegistrationOut, dependencies=SUPER)
 def mark_attendance(reg_id: int, payload: schemas.AttendanceIn,
                     db: Session = Depends(get_db)):
     reg = db.get(models.WorkshopRegistration, reg_id)
@@ -2146,9 +2354,17 @@ def list_events_public(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/api/events", response_model=List[schemas.EventOut], dependencies=ADMIN)
-def list_events(db: Session = Depends(get_db)):
-    return db.query(Event).order_by(Event.created_at.desc()).all()
+@app.get("/api/events", response_model=List[schemas.EventOut])
+def list_events(user: models.User = Depends(auth.require_admin),
+                db: Session = Depends(get_db)):
+    """The races this operator may run, newest first.
+
+    A super admin sees all of them. An admin sees the unassigned ones and the
+    ones they are on -- not a greyed-out list of other people's races, because
+    a race they cannot open is not information they need.
+    """
+    rows = db.query(Event).order_by(Event.created_at.desc()).all()
+    return [e for e in rows if may_run(db, user, e)]
 
 
 # Creating a race commits the organisation to it -- codes end up on printed
@@ -2170,7 +2386,7 @@ def get_event(code: str, db: Session = Depends(get_db)):
     return _get_event(db, code)
 
 
-@app.post("/api/events/{code}/start", response_model=schemas.EventOut, dependencies=ADMIN)
+@app.post("/api/events/{code}/start", response_model=schemas.EventOut, dependencies=RACE)
 def set_start(code: str, at: datetime | None = None, db: Session = Depends(get_db)):
     """Fire the gun. Omit `at` to use the server clock right now."""
     ev = _get_event(db, code)
@@ -2210,7 +2426,7 @@ def _sniff_image(blob: bytes) -> str:
 _import_disk_artwork()
 
 
-@app.post("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=ADMIN)
+@app.post("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=RACE)
 async def upload_artwork(code: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Attach race artwork to an event.
 
@@ -2252,7 +2468,7 @@ def get_artwork(code: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/events/{code}/certificate-artwork",
-          response_model=schemas.EventOut, dependencies=ADMIN)
+          response_model=schemas.EventOut, dependencies=RACE)
 async def upload_cert_artwork(code: str, file: UploadFile = File(...),
                               db: Session = Depends(get_db)):
     """Artwork for the finisher card only.
@@ -2279,7 +2495,7 @@ async def upload_cert_artwork(code: str, file: UploadFile = File(...),
 
 
 @app.post("/api/events/{code}/photo", response_model=schemas.EventOut,
-          dependencies=ADMIN)
+          dependencies=RACE)
 async def upload_photo(code: str, file: UploadFile = File(...),
                        db: Session = Depends(get_db)):
     """A photograph of the race, for the listing and the results page.
@@ -2317,7 +2533,7 @@ def get_photo(code: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/events/{code}/photo", response_model=schemas.EventOut,
-            dependencies=ADMIN)
+            dependencies=RACE)
 def clear_photo(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     ev.photo_url = None
@@ -2342,7 +2558,7 @@ def get_cert_artwork(code: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/events/{code}/certificate-artwork",
-            response_model=schemas.EventOut, dependencies=ADMIN)
+            response_model=schemas.EventOut, dependencies=RACE)
 def clear_cert_artwork(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     ev.cert_artwork_url = None
@@ -2353,7 +2569,7 @@ def clear_cert_artwork(code: str, db: Session = Depends(get_db)):
     return ev
 
 
-@app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=ADMIN)
+@app.delete("/api/events/{code}/artwork", response_model=schemas.EventOut, dependencies=RACE)
 def clear_artwork(code: str, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     ev.artwork_url = None
@@ -2364,7 +2580,7 @@ def clear_artwork(code: str, db: Session = Depends(get_db)):
     return ev
 
 
-@app.patch("/api/events/{code}/branding", response_model=schemas.EventOut, dependencies=ADMIN)
+@app.patch("/api/events/{code}/branding", response_model=schemas.EventOut, dependencies=RACE)
 def set_branding(code: str, payload: schemas.BrandingIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     # exclude_unset so that PATCHing only the tagline does not wipe the colour.
@@ -2404,7 +2620,7 @@ def list_races(code: str, db: Session = Depends(get_db)):
     return _get_event(db, code).races
 
 
-@app.post("/api/events/{code}/races", response_model=schemas.RaceOut, status_code=201, dependencies=ADMIN)
+@app.post("/api/events/{code}/races", response_model=schemas.RaceOut, status_code=201, dependencies=RACE)
 def add_race(code: str, payload: schemas.RaceIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     if any(r.name.lower() == payload.name.strip().lower() for r in ev.races):
@@ -2417,7 +2633,7 @@ def add_race(code: str, payload: schemas.RaceIn, db: Session = Depends(get_db)):
     return race
 
 
-@app.patch("/api/races/{race_id}", response_model=schemas.RaceOut, dependencies=ADMIN)
+@app.patch("/api/races/{race_id}", response_model=schemas.RaceOut, dependencies=RACE_OF_RACE)
 def update_race(race_id: int, payload: schemas.RacePatch,
                 db: Session = Depends(get_db)):
     race = db.get(Race, race_id)
@@ -2430,7 +2646,7 @@ def update_race(race_id: int, payload: schemas.RacePatch,
     return race
 
 
-@app.delete("/api/races/{race_id}", status_code=204, dependencies=ADMIN)
+@app.delete("/api/races/{race_id}", status_code=204, dependencies=RACE_OF_RACE)
 def delete_race(race_id: int, db: Session = Depends(get_db)):
     race = db.get(Race, race_id)
     if not race:
@@ -2468,7 +2684,7 @@ def _assert_sequence_free(db: Session, ev: Event, race_id, sequence: int,
             f"Give this checkpoint a different order number.")
 
 
-@app.post("/api/events/{code}/checkpoints", response_model=schemas.CheckpointOut, status_code=201, dependencies=ADMIN)
+@app.post("/api/events/{code}/checkpoints", response_model=schemas.CheckpointOut, status_code=201, dependencies=RACE)
 def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     if payload.kind not in ("start", "split", "finish"):
@@ -2483,7 +2699,7 @@ def add_checkpoint(code: str, payload: schemas.CheckpointIn, db: Session = Depen
     return cp
 
 
-@app.patch("/api/checkpoints/{cp_id}", response_model=schemas.CheckpointOut, dependencies=ADMIN)
+@app.patch("/api/checkpoints/{cp_id}", response_model=schemas.CheckpointOut, dependencies=RACE_OF_CHECKPOINT)
 def update_checkpoint(cp_id: int, payload: schemas.CheckpointUpdate,
                       db: Session = Depends(get_db)):
     cp = db.get(Checkpoint, cp_id)
@@ -2515,7 +2731,7 @@ def list_checkpoints(code: str, db: Session = Depends(get_db)):
     return ev.checkpoints
 
 
-@app.delete("/api/checkpoints/{cp_id}", status_code=204, dependencies=ADMIN)
+@app.delete("/api/checkpoints/{cp_id}", status_code=204, dependencies=RACE_OF_CHECKPOINT)
 def delete_checkpoint(cp_id: int, db: Session = Depends(get_db)):
     cp = db.get(Checkpoint, cp_id)
     if cp:
@@ -2533,7 +2749,7 @@ def list_participants(code: str, db: Session = Depends(get_db)):
     return sorted(ev.participants, key=lambda p: p.bib.zfill(8))
 
 
-@app.post("/api/events/{code}/participants", response_model=List[schemas.ParticipantOut], dependencies=ADMIN)
+@app.post("/api/events/{code}/participants", response_model=List[schemas.ParticipantOut], dependencies=RACE)
 def add_participants(code: str, payload: List[schemas.ParticipantIn], db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     existing = {p.bib for p in ev.participants}
@@ -2553,7 +2769,7 @@ def add_participants(code: str, payload: List[schemas.ParticipantIn], db: Sessio
     return added
 
 
-@app.post("/api/events/{code}/participants/csv", response_model=List[schemas.ParticipantOut], dependencies=ADMIN)
+@app.post("/api/events/{code}/participants/csv", response_model=List[schemas.ParticipantOut], dependencies=RACE)
 async def import_participants_csv(code: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Import a start list.
 
@@ -2593,7 +2809,7 @@ async def import_participants_csv(code: str, file: UploadFile = File(...), db: S
     return add_participants(code, rows, db)
 
 
-@app.delete("/api/participants/{pid}", status_code=204, dependencies=ADMIN)
+@app.delete("/api/participants/{pid}", status_code=204, dependencies=RACE_OF_PARTICIPANT)
 def delete_participant(pid: int, db: Session = Depends(get_db)):
     """Remove a runner from the start list.
 
@@ -2608,7 +2824,7 @@ def delete_participant(pid: int, db: Session = Depends(get_db)):
         db.commit()
 
 
-@app.patch("/api/participants/{pid}", response_model=schemas.ParticipantOut, dependencies=ADMIN)
+@app.patch("/api/participants/{pid}", response_model=schemas.ParticipantOut, dependencies=RACE_OF_PARTICIPANT)
 def update_participant(pid: int, payload: schemas.ParticipantIn, db: Session = Depends(get_db)):
     """Correct a runner's details. Changing a bib invalidates their printed
     QR code, so the caller is trusted to reprint."""
@@ -2631,7 +2847,7 @@ def update_participant(pid: int, payload: schemas.ParticipantIn, db: Session = D
     return p
 
 
-@app.post("/api/events/{code}/participants/{bib}/dnf", response_model=schemas.ParticipantOut, dependencies=ADMIN)
+@app.post("/api/events/{code}/participants/{bib}/dnf", response_model=schemas.ParticipantOut, dependencies=RACE)
 def mark_dnf(code: str, bib: str, dnf: bool = True, db: Session = Depends(get_db)):
     ev = _get_event(db, code)
     p = db.query(Participant).filter(
@@ -2711,7 +2927,7 @@ def ingest_reads(code: str, payload: schemas.ReadBatchIn, db: Session = Depends(
     return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
 
 
-@app.get("/api/events/{code}/reads", dependencies=ADMIN)
+@app.get("/api/events/{code}/reads", dependencies=RACE)
 def list_reads(code: str, limit: int = 500, db: Session = Depends(get_db)):
     """Raw audit log, newest first."""
     ev = _get_event(db, code)
@@ -2730,7 +2946,7 @@ def list_reads(code: str, limit: int = 500, db: Session = Depends(get_db)):
     } for r in rows]
 
 
-@app.post("/api/reads/{read_id}/void", dependencies=ADMIN)
+@app.post("/api/reads/{read_id}/void", dependencies=RACE_OF_READ)
 def void_read(read_id: str, voided: bool = True, db: Session = Depends(get_db)):
     """Exclude a read from timing without deleting it.
 

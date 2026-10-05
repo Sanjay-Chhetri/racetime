@@ -126,6 +126,37 @@ class Event(Base):
     )
 
 
+class EventOperator(Base):
+    """Which admins are allowed to run which race.
+
+    **An unassigned race is open to every admin, exactly as all races were
+    before this existed.** Name somebody and it closes: from then on only the
+    people named, and the super admins, may touch it. That is deliberate --
+    it means nothing breaks for races that already exist, there is no
+    migration to get wrong, and an organiser opts in per race simply by saying
+    who is running it. Emptying the list opens it up again.
+
+    Super admins are never listed and never need to be: they create races and
+    manage accounts, so scoping them would lock the organisation out of its
+    own event.
+    """
+    __tablename__ = "event_operators"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    event = relationship("Event")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "user_id", name="uq_event_operator"),
+    )
+
+
 class Race(Base):
     """One distance within an event.
 

@@ -195,7 +195,16 @@ One run somebody did on their own, offered towards a virtual race.
 Like a `Read`, this is a record of something that happened, and **progress is
 summed from these on request and never stored**.
 
-### 3.14 Read — append-only
+### 3.14 EventOperator
+
+Which admins are allowed to run which race. One row per person per race, with
+a unique constraint on the pair.
+
+**An unassigned race is open to every admin; naming somebody closes it.** The
+table is therefore empty for every race that existed before it, which is
+exactly why nothing had to be migrated. Super admins are never rows in it.
+
+### 3.15 Read — append-only
 
 One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 
@@ -1035,6 +1044,53 @@ waived, a run rejected, a distance finished.
   plain functions over plain values, with no ORM object, database or network, so
   what the email says is tested directly. That is where this kind of bug lives.
 
+### FR-26 — Who runs which race
+
+Four admins and five races. An admin brought in to run one of them should not
+hold the others, and "view only" is not a lesser version of that: a race's
+entry list carries every entrant's email, phone, emergency contact and, for a
+virtual race, their home address.
+
+- **FR-26.1** A race can have named operators. **While nobody is named, every
+  admin can run it** — which is how every race behaved before this existed,
+  so nothing broke when it arrived and there was no migration to get wrong.
+- **FR-26.2** **Naming somebody closes the race.** From then on only the people
+  named, and the super admins, may touch it. Emptying the list opens it again.
+  That makes assignment the thing an organiser does, rather than a mode to
+  turn on first.
+- **FR-26.3** **Super admins are never scoped and never listed.** They create
+  races and manage accounts; scoping them would let an organisation lock itself
+  out of its own event. Assigning one is refused, because offering it implies
+  it could be taken away.
+- **FR-26.4** An admin who is not on a race gets **403 on every race-level
+  endpoint of it** — no read and no write. The refusal names the race and says
+  to ask a super admin, because somebody holding two of five races needs to
+  know which door they just hit.
+- **FR-26.5** **The scope is a dependency on the route, not a line in the
+  handler.** There are more than thirty race-level endpoints; a check forgotten
+  in one of them is not a bug, it is a hole. A route either carries a scope or
+  it is named, with a reason, in a list the suite reads — see
+  [11](#11-verification-performed).
+- **FR-26.6** `GET /api/events` returns **only the races this operator may
+  run**, so the picker offers two of five rather than five with three locked.
+  A race somebody cannot open is not information.
+- **FR-26.7** A race's **public face is untouched**: the results, the start
+  list, the photograph and the listing stay public, because they always were.
+  Scoping applies to the organiser's screens.
+- **FR-26.8** **An admin is also a person.** Entering somebody else's race as a
+  runner, logging their own runs and paying their own entry remain theirs to do
+  in any race.
+- **FR-26.9** Only a **super admin** may read or change who runs a race.
+- **FR-26.10** A runner cannot be assigned, and is told to be made an admin
+  first. Nor can a disabled account.
+- **FR-26.11** **The screen says which state it is in.** "Nobody assigned" and
+  "nobody allowed" look identical in a column of unticked boxes, so the panel
+  spells out that an unassigned race is open to every admin.
+- **FR-26.12** Site-wide screens are not race-scoped, so they were placed by
+  hand: the **one shared inbox stays open to every admin**, while the
+  **workshops and the visitor numbers moved to super admin** — an admin
+  brought in to run one race does not inherit the site with it.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -1155,15 +1211,15 @@ the role. Interactive docs at `/docs` while the server runs.
 | | `GET` | `/api/workshops` | Published workshops, soonest first; operators also see unpublished ones |
 | | `GET` | `/api/workshops/{slug}` | One workshop; `404` if unpublished and you are not an operator |
 | | `GET` | `/api/workshops/{slug}/cover` | The cover image |
-| 🔒 | `POST` | `/api/workshops` | Create one; unpublished until you say otherwise |
-| 🔒 | `PATCH` | `/api/workshops/{slug}` | Edit; raising the capacity promotes the waitlist |
-| 🔒 | `DELETE` | `/api/workshops/{slug}` | `409` if anybody attended — unpublish instead |
-| 🔒 | `POST` | `/api/workshops/{slug}/cover` | Multipart image upload |
+| ⭐ | `POST` | `/api/workshops` | Create one; unpublished until you say otherwise |
+| ⭐ | `PATCH` | `/api/workshops/{slug}` | Edit; raising the capacity promotes the waitlist |
+| ⭐ | `DELETE` | `/api/workshops/{slug}` | `409` if anybody attended — unpublish instead |
+| ⭐ | `POST` | `/api/workshops/{slug}/cover` | Multipart image upload |
 | 👤 | `POST` | `/api/workshops/{slug}/register` | Take a place, or join the waitlist |
 | 👤 | `POST` | `/api/workshop-registrations/{reg_id}/cancel` | Drop out; promotes the next person waiting |
 | 👤 | `GET` | `/api/me/workshops` | Your own places, waitlist spots and attendance |
-| 🔒 | `GET` | `/api/workshops/{slug}/registrations` | The register, with contact details — operators only |
-| 🔒 | `PATCH` | `/api/workshop-registrations/{reg_id}` | Mark present or absent; timestamped |
+| ⭐ | `GET` | `/api/workshops/{slug}/registrations` | The register, with contact details — operators only |
+| ⭐ | `PATCH` | `/api/workshop-registrations/{reg_id}` | Mark present or absent; timestamped |
 | | `POST` | `/api/interest` | What somebody would pay for; no account needed |
 
 ### Virtual races
@@ -1187,6 +1243,13 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `GET` | `/api/events/{code}/runs` | Every submission; `?status=flagged` to review |
 | 🔒 | `GET` | `/api/events/{code}/shipping.csv` | Addresses for posting medals, finishers only |
 
+### Who runs which race
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| ⭐ | `GET` | `/api/events/{code}/operators` | Who runs this race, and which admins could |
+| ⭐ | `PUT` | `/api/events/{code}/operators` | Replace that list; an empty list reopens the race to every admin |
+
 ### Messages
 
 | | Method | Path | Purpose |
@@ -1200,7 +1263,7 @@ the role. Interactive docs at `/docs` while the server runs.
 
 | | Method | Path | Purpose |
 |---|---|---|---|
-| 🔒 | `GET` | `/api/analytics` | Visits, visitors, pages, races, referrers, devices |
+| ⭐ | `GET` | `/api/analytics` | Visits, visitors, pages, races, referrers, devices |
 | ⭐ | `POST` | `/api/analytics/prune` | Delete rows past the retention window |
 
 ### Reads and results
@@ -1321,9 +1384,11 @@ is missing is the next layer: an organiser confirms an entry or changes a bib
 and the row does not record which account did it. Reads carry a full audit
 trail; nothing else does.
 
-Roles are also global rather than per-event, so a second organiser would hold
-admin over every race rather than their own. Proportionate for one timing crew
-in Kalimpong; not for two.
+Races can now be given named operators (FR-26), so a second organiser holds
+their own race rather than all of them. What is still global is the role
+itself: an account is an admin everywhere or nowhere, and being on one race
+does not make somebody an admin, it only limits one. The audit gap above is
+the part that remains.
 
 ---
 
@@ -1335,7 +1400,6 @@ in Kalimpong; not for two.
 | Shipping status | Not built. The address list is a CSV; whether a medal was posted is not tracked |
 | Strava / GPS import | Not built. Evidence would be a photograph or a screenshot |
 | The interest question | Half built — endpoint and table exist, nothing asks it |
-| Per-event roles | Not built. A role applies to every race, see [9.7](#97-no-audit-of-who-changed-what) |
 | Audit of admin actions | Not built for anything but reads |
 | Year grouping of events | Not built. Only useful across multiple seasons |
 | SMS / email notification | Not built. The contact form sends one way |
@@ -1356,7 +1420,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **642 assertions** — 388 against the API, 254 driving a real
+carry **720 assertions** — 432 against the API, 288 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1408,6 +1472,11 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | transport | a fake SMTP server: addressed to the runner, `Reply-To` the organiser, marked auto-generated; a refused connection is returned, not raised |
 | | the glue | each decision queues exactly one notice and only when something changed; paying twice, re-confirming and logging more runs after finishing all queue nothing |
 | | with SMTP unset | every decision still saves, and an account with no email address is skipped silently |
+| **Per-race admins** | 44 checks over the API | an unassigned race is open to every admin; naming one closes it; emptying the list reopens it |
+| | **every race-level route, enumerated from the app** | all 34 answer `403` to an admin who is not on that race, including the six multipart ones. A route that is not scoped has to be named in the suite with a reason, so a new one added and forgotten fails here |
+| | what cannot be assigned | a runner (`422`, told to be made an admin first), a super admin, an unknown id; none of them change the list |
+| | the public side | results, the listing and the start list unchanged; entries still `401` to the public |
+| **Per-race admins in the browser** | Chromium, 34 checks | the picker offers his race and not hers; the other race's address shows one message instead of a screen of refusals; Members, Workshops and Visitors are gone for an admin and Messages is not |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
 ### One that got through

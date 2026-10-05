@@ -36,6 +36,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [Race photographs](#race-photographs)
 - [Getting in touch](#getting-in-touch)
 - [Telling people what happened](#telling-people-what-happened)
+- [Who runs which race](#who-runs-which-race)
 - [Signing in](#signing-in)
 - [The landing page](#the-landing-page)
 - [The results page](#the-results-page)
@@ -446,6 +447,42 @@ default `https://racetime-beta.vercel.app`.
 
 ---
 
+## Who runs which race
+
+Four admins and five races, and you do not want the person running the Pedong
+race opening the Kalimpong one. Open a race, and under **Who runs this race**
+tick the people who should run it.
+
+**While nobody is ticked, every admin can run the race.** That is how every
+race worked before this existed, so nothing changed for the ones you already
+have. Tick two people and only those two can touch it; everybody else stops
+seeing it at all. Clear the ticks and it opens up again.
+
+| | Super admin | An admin on the race | An admin not on it |
+|---|---|---|---|
+| Run the race — runners, bibs, entries, artwork, payments | yes | yes | **no** |
+| See who entered, with their phone and address | yes | yes | **no** |
+| Even open the race in admin | yes | yes | **no** — it is not in their list |
+| Decide who runs it | yes | no | no |
+| Messages inbox | yes | yes | yes |
+| Workshops and visitor numbers | yes | no | no |
+| Create a race | yes | no | no |
+
+Super admins are not on the tick list: they can run everything, and offering to
+assign them would suggest that could be taken away. Runners have to be made
+admins first, under Members.
+
+**"Can look but not change" is deliberately not an option.** A race's entry
+list carries every entrant's email, phone, emergency contact and, for a virtual
+race, their home address. Looking is the part worth stopping.
+
+Nothing about the public side changes: results, the race listing, the start
+list and the photographs stay public, because they always were. And an admin is
+still a person — they can enter anybody's race as a runner, log their own runs
+and pay their own entry.
+
+---
+
 ## Signing in
 
 Organisers sign in at `/login.html` with a username and password. There are two
@@ -656,7 +693,7 @@ python tools/rfid_bridge.py --event siliguri10k --checkpoint 2 --simulate
 ```
 backend/
   main.py         FastAPI app, every endpoint, automatic schema migrations
-  models.py       14 tables. `reads` and run submissions are the record
+  models.py       15 tables. `reads` and run submissions are the record
   schemas.py      Pydantic request/response models
   timing.py       Splits and rankings, computed on demand and never stored
   achievements.py Points and badges, derived from reads on every request
@@ -706,6 +743,7 @@ you will actually touch:
 | | `POST` | `/api/auth/login` | Sign in; sets the session cookie |
 | | `POST` | `/api/auth/logout` | Sign out |
 | ⭐ | `GET` | `/api/users` | Accounts (super admin only) |
+| ⭐ | `PUT` | `/api/events/{code}/operators` | Who may run this race; empty list reopens it |
 | 🔒 | `GET` | `/api/analytics` | Visitor numbers |
 | | `POST` | `/api/auth/signup` | Open a runner account |
 | | `GET` | `/api/events/upcoming` | Published races, soonest first |

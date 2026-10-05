@@ -637,3 +637,29 @@ class RunOut(BaseModel):
 class RunDecisionIn(BaseModel):
     status: Literal["accepted", "flagged", "rejected"]
     note: Optional[str] = Field(None, max_length=400)
+
+
+# --------------------------------------------------------------------------
+# Who runs which race
+# --------------------------------------------------------------------------
+
+class RaceCrewMember(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    on: bool = False
+
+
+class RaceCrewOut(BaseModel):
+    code: str
+    assigned: List[RaceCrewMember] = []
+    available: List[RaceCrewMember] = []
+    # True while nobody is named, which is when every admin may run the race.
+    # The screen says so out loud, because "nobody assigned" and "nobody
+    # allowed" look the same in a list of unticked boxes.
+    open_to_all: bool = True
+
+
+class RaceCrewIn(BaseModel):
+    """The whole set, not a change to it. An empty list reopens the race."""
+    user_ids: List[int] = []
