@@ -2024,3 +2024,20 @@ a.button[hidden] { display: none; }
 
 #payActs { margin: .5rem 0 .2rem; }
 #payActs > * { flex: 0 0 auto; }
+
+
+/* The race, on a bib for an event that has more than one.
+   Sized to be read across a junction, not in the hand: a marshal deciding
+   whether this runner turns left for the 5K or right for the 25K is looking
+   at them from several metres away, and the number alone does not say. */
+.bibcard .lane {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  font-size: clamp(1rem, 3.4vw, 2.1rem); line-height: 1;
+  text-transform: uppercase; letter-spacing: .06em;
+  text-align: center;
+  padding: .45rem .6rem 0;
+  color: #111;
+}
+.bibcard.full .lane { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.55); }
+/* It sits between the band and the number, so the card is now four rows. */
+.bibcard { grid-template-rows: auto auto 1fr auto; }

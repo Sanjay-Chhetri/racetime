@@ -188,6 +188,12 @@ Every finisher gets three placings — overall, within their category, and withi
 their gender — each computed inside their own race and each carrying its field
 size, so results can say *"1st of 19 in Open"* rather than just a number.
 
+**Each bib prints its own runner's race**, above the number and large enough to
+read across a junction: `25K` over `101`, `5K` over `301`. A race whose name has
+no number in it, like "Hill Challenge", prints with the distance added. That
+matters for marshalling as much as for the runner — the person at the fork has
+to tell at a glance who turns left.
+
 Two naming rules follow from how the app works:
 
 - **Checkpoint names are unique per event**, not per race. Volunteers pick from

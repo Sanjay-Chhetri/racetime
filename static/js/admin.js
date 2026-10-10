@@ -728,11 +728,35 @@ $('csv').onchange = async e => {
 
 // The distance printed on the bib is whatever the finish checkpoint says, so
 // nobody has to type "10K" a second time and get it out of step.
+const km = n => (Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(1));
+
+/* The event's single distance, for an event that has one.
+
+   This used to be what every bib printed, which was wrong the moment an event
+   had more than one race: `find` returns the first finish line in the list, so
+   in a 25K / 10K / 5K event every bib carried whichever of the three happened
+   to be first. A 5K runner would be handed a bib saying 25K. Now it only
+   answers when there is nothing to confuse it with. */
 function raceDistance() {
-  const fin = (ev.checkpoints || []).find(c => c.kind === 'finish');
-  if (!fin || !fin.distance_km) return '';
-  const km = Number(fin.distance_km);
-  return (Number.isInteger(km) ? km : km.toFixed(1)) + 'K';
+  const finishes = (ev.checkpoints || []).filter(c => c.kind === 'finish');
+  if (finishes.length !== 1 || !finishes[0].distance_km) return '';
+  return km(finishes[0].distance_km) + 'K';
+}
+
+/* Which race this runner is in, by their own race_id and nobody else's. */
+function raceOf(p) {
+  return (ev.races || []).find(r => String(r.id) === String(p.race_id)) || null;
+}
+
+/* What goes on the bib. The organiser's own name for the race first, because
+   "25K" is what is painted on the signs and shouted at the junction. A name
+   with no number in it gets the distance added, so "Hill Challenge" still
+   tells a marshal how far this runner is going. */
+function raceLabel(p) {
+  const r = raceOf(p);
+  if (!r) return raceDistance();
+  const d = Number(r.distance_km);
+  return d && !/\d/.test(r.name) ? `${r.name} \u00b7 ${km(d)} km` : r.name;
 }
 
 $('saveBrand').onclick = e => withBusy(e.currentTarget, async () => {
@@ -886,9 +910,15 @@ async function bibCard(p) {
   card.style.setProperty('--accent', ev.accent_color || '#f2c500');
   if (ev.artwork_url) card.style.setProperty('--art', `url("${ev.artwork_url}")`);
 
-  const meta = [p.category, raceDistance(), ev.tagline].filter(Boolean).join(' · ');
+  // The race goes on its own line, not into the small print with the
+  // category: a marshal at a junction has to tell a 5K runner from a 25K one
+  // at a glance, and the whole point of the number underneath is that it is
+  // readable from further away than a caption is.
+  const lane = raceLabel(p);
+  const meta = [p.category, ev.tagline].filter(Boolean).join(' · ');
   card.innerHTML =
     `<div class="band"><div class="race">${esc(ev.name)}</div></div>` +
+    (lane ? `<div class="lane">${esc(lane)}</div>` : '') +
     `<div class="digits">${esc(p.bib)}</div>` +
     `<div class="foot">
        <div class="who">

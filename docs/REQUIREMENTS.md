@@ -472,6 +472,24 @@ One sighting of one bib at one checkpoint. **Never edited, never deleted.**
 - **FR-8.11** A live preview shows a real bib, using the first runner on the
   start list where one exists.
 
+### FR-8a — A bib says which race it is for
+
+- **FR-8a.1** On an event with several distances, each bib carries **its own
+  runner's race**, taken from their `race_id`.
+- **FR-8a.2** This replaces a real fault, not a missing nicety. The bib used to
+  print the first finish line found in the whole event, so on a 25K / 10K / 5K
+  morning **every bib showed the same distance** and a 5K runner was handed one
+  saying 25K.
+- **FR-8a.3** The label is the organiser's own name for the race, because "25K"
+  is what is painted on the signs. A name with no number in it gets the
+  distance appended, so "Hill Challenge" prints as `Hill Challenge — 12 km`.
+- **FR-8a.4** It sits on its own line above the number, not in the small print
+  with the category. A marshal deciding whether a runner turns left for the 5K
+  or right for the 25K is reading it from several metres away.
+- **FR-8a.5** The event-wide distance is still used when a runner has no race
+  of their own, and **only when the event has exactly one finish line** — with
+  more than one there is nothing to guess from.
+
 ### FR-9 — Finisher card (`/certificate.html`)
 
 - **FR-9.1** A race is chosen from a dropdown of all events. A single event
@@ -1484,7 +1502,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **777 assertions** — 473 against the API, 304 driving a real
+carry **792 assertions** — 473 against the API, 319 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1546,6 +1564,7 @@ race in a list was its own, and one assumed a password another suite rotates.
 | **The checkpoint code** | 33 checks over the API | off on a new race and anybody may scan; once on, a scan with no code or a wrong code is `403` naming the organiser; the right one in any case is accepted |
 | | what it never reaches | absent from the public event, the listing and the results, and unreadable by the public, a runner, or an admin who is not on the race |
 | | rolling and clearing | the old code stops at once; clearing it restores open scanning |
+| **Bibs on a multi-race day** | Chromium, 15 checks | a 25K / 10K / 5K event built as a real one: each bib prints its own distance, no two agree, a race named without a number gets the distance added, and a single-race event still names itself |
 | **The capture screen** | Chromium at 390 px, 15 checks | no code asked for when none is set; a wrong one refused **before** capture starts; the right one, typed in lower case, starts the day and a bib reaches the server |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 
