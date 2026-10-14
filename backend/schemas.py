@@ -645,6 +645,19 @@ class RunDecisionIn(BaseModel):
 # Who runs which race
 # --------------------------------------------------------------------------
 
+class EventCostOut(BaseModel):
+    """What deleting a race would destroy, counted before anybody decides."""
+    code: str
+    name: str
+    races: int = 0
+    checkpoints: int = 0
+    participants: int = 0
+    registrations: int = 0
+    reads: int = 0
+    runs: int = 0
+    is_published: bool = False
+
+
 class DeviceKeyOut(BaseModel):
     """The checkpoint code. Operator-only: it is the thing being protected.
 

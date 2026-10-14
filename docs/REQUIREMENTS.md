@@ -1165,6 +1165,46 @@ closed, without taking the open path away from the ones who do not.
   it is typed again. That is the point of rolling it over, so the screen says
   so before it happens.
 
+### FR-28 — Deleting a race
+
+The only destructive act in the app. Everything else can be undone, voided or
+worked out again from the reads — and the reads are exactly what this
+destroys.
+
+- **FR-28.1** **Super admins only.** Not the admins running the race: being
+  trusted to run a race is not the same as being trusted to erase it.
+- **FR-28.2** **The code has to be typed**, not a box ticked. The point is to
+  make somebody name the thing they are destroying, which is the one guard that
+  still works on a tired person with four tabs open. The server refuses unless
+  `confirm` matches the code exactly.
+- **FR-28.3** **The warning counts what will be lost before it is shown.**
+  "This cannot be undone" gets clicked through; "this destroys 412 scans" does
+  not. `GET /api/events/{{code}}/delete-preview` returns the scans, runners,
+  entries, races and checkpoints at stake.
+- **FR-28.4** Where the race only needs to come off the website, the screen
+  says to untick **Show on the home page** instead, and says it before the
+  dialog rather than after.
+- **FR-28.5** The delete removes reads, participants, checkpoints, races,
+  entries, run submissions and crew **explicitly, in order**, rather than
+  leaving it to the database: SQLite does not enforce `ON DELETE CASCADE`
+  unless foreign keys are switched on for that connection, and a half-deleted
+  race — reads with no event — is worse than either outcome.
+
+### FR-29 — A race code is not always URL-safe
+
+- **FR-29.1** Codes may contain spaces and other characters that the address
+  bar percent-encodes. `Virtual Run Pedong` arrives back from a hash as
+  `Virtual%20Run%20Pedong`.
+- **FR-29.2** Everything that forwards the code to the API was always correct,
+  because that is the encoding a URL path wants. What broke was **comparing**
+  it: the race-crew guard checked the encoded string against the list of real
+  codes, and told a super admin they were not one of the people running their
+  own race. The hash is decoded on the way in, after splitting on `/` so an
+  encoded slash survives.
+- **FR-29.3** Picking a race from the dropdown while on an operator screen now
+  opens it on Runners. It used to load the race and leave the organiser looking
+  at the screen they were already on, which reads as nothing having happened.
+
 ## 5. Non-functional requirements
 
 | # | Requirement |
@@ -1331,6 +1371,13 @@ the role. Interactive docs at `/docs` while the server runs.
 | 🔒 | `GET` | `/api/events/{code}/device-key` | The code, for the people running this race |
 | 🔒 | `POST` | `/api/events/{code}/device-key` | Turn it on, or roll it over |
 | 🔒 | `DELETE` | `/api/events/{code}/device-key` | Back to open scanning |
+
+### Deleting a race
+
+| | Method | Path | Purpose |
+|---|---|---|---|
+| ⭐ | `GET` | `/api/events/{code}/delete-preview` | What deleting it would destroy |
+| ⭐ | `DELETE` | `/api/events/{code}` | Delete it; needs `?confirm=<code>` |
 
 ### Messages
 
@@ -1502,7 +1549,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **792 assertions** — 473 against the API, 319 driving a real
+carry **835 assertions** — 498 against the API, 337 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1565,6 +1612,10 @@ race in a list was its own, and one assumed a password another suite rotates.
 | | what it never reaches | absent from the public event, the listing and the results, and unreadable by the public, a runner, or an admin who is not on the race |
 | | rolling and clearing | the old code stops at once; clearing it restores open scanning |
 | **Bibs on a multi-race day** | Chromium, 15 checks | a 25K / 10K / 5K event built as a real one: each bib prints its own distance, no two agree, a race named without a number gets the distance added, and a single-race event still names itself |
+| **Deleting a race** | 25 checks over the API | refused without the code and with a wrong one, refused to the public and to the admin running that very race; the preview counts scans, runners, races and checkpoints |
+| | a code with spaces | created, opened, edited and deleted through its encoded path, and the code comes back intact |
+| | afterwards | gone from the operator list, the public listing and its own results |
+| **Both in the browser** | Chromium at 390 px, 18 checks | the race opens from the picker and from a typed address with no refusal; the dialog names the race and counts the loss; a wrong code deletes nothing |
 | **The capture screen** | Chromium at 390 px, 15 checks | no code asked for when none is set; a wrong one refused **before** capture starts; the right one, typed in lower case, starts the day and a bib reaches the server |
 | **Deployment** | live site after each deploy | all pages `200`, results intact |
 

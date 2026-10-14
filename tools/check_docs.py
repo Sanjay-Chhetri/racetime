@@ -111,6 +111,8 @@ for phrase, why in [
     ("642 assertions", "the suites have grown again"),
     ("720 assertions", "the suites have grown again"),
     ("729 assertions", "the suites have grown again"),
+    ("777 assertions", "the suites have grown again"),
+    ("792 assertions", "the suites have grown again"),
     ("Checkpoint device credentials | Not built",
      "a per-race checkpoint code is built"),
     ("The checkpoint screen has no credentials",

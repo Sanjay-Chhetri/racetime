@@ -628,6 +628,16 @@ centre. So:
 
 ---
 
+### Deleting a race
+
+Only a super admin can, and only by typing the race code into the dialog. The
+warning counts exactly what goes first — the scans, the runners, the entries
+— because the scans are the only record that the race was ever run and they
+cannot be got back.
+
+If you only want the race off the website, untick **Show on the home page**
+instead. That hides it from everybody and keeps everything.
+
 ### Stopping strangers scanning
 
 The capture screen is open to anybody with the link, and so is the endpoint it

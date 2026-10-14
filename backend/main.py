@@ -1833,6 +1833,88 @@ def shipping_csv(code: str, db: Session = Depends(get_db)):
 
 
 # --------------------------------------------------------------------------
+# Deleting a race
+#
+# The only destructive act in the app. Everything else can be undone, voided or
+# re-derived from the reads -- and the reads are exactly what this destroys, so
+# it asks the person to type the code and it is kept to super admins.
+# --------------------------------------------------------------------------
+
+def _event_cost(db: Session, ev: Event) -> schemas.EventCostOut:
+    reg_ids = [r.id for r in db.query(models.Registration.id)
+               .filter(models.Registration.event_id == ev.id).all()]
+    runs = 0
+    if reg_ids:
+        runs = (db.query(models.RunSubmission)
+                .filter(models.RunSubmission.registration_id.in_(reg_ids)).count())
+    return schemas.EventCostOut(
+        code=ev.code, name=ev.name,
+        races=len(ev.races), checkpoints=len(ev.checkpoints),
+        participants=len(ev.participants),
+        registrations=len(reg_ids),
+        reads=db.query(Read).filter(Read.event_id == ev.id).count(),
+        runs=runs,
+        is_published=bool(ev.is_published),
+    )
+
+
+@app.get("/api/events/{code}/delete-preview", response_model=schemas.EventCostOut,
+         dependencies=SUPER)
+def delete_preview(code: str, db: Session = Depends(get_db)):
+    """What would be lost. Asked before the question, so the warning is true.
+
+    A dialog that says "this cannot be undone" without saying what *this* is
+    gets clicked through. One that says "412 scans" does not.
+    """
+    return _event_cost(db, _get_event(db, code))
+
+
+@app.delete("/api/events/{code}", response_model=schemas.EventCostOut,
+            dependencies=SUPER)
+def delete_event(code: str, confirm: str = "", db: Session = Depends(get_db)):
+    """Delete a race and everything that belongs to it.
+
+    `confirm` must be the event code. Not a checkbox: the point is to make the
+    person name the thing they are destroying, which is the one guard that
+    still works on somebody who is tired and has four tabs open.
+    """
+    ev = _get_event(db, code)
+    if confirm.strip() != ev.code:
+        raise HTTPException(
+            422, f"To delete this race, send confirm={ev.code}. Nothing was "
+                 f"deleted.")
+    cost = _event_cost(db, ev)
+
+    # Done explicitly rather than left to the database. SQLite does not enforce
+    # ON DELETE CASCADE unless foreign keys are switched on for the connection,
+    # and a half-deleted race -- reads with no event -- is worse than either
+    # outcome.
+    reg_ids = [r.id for r in db.query(models.Registration.id)
+               .filter(models.Registration.event_id == ev.id).all()]
+    if reg_ids:
+        (db.query(models.RunSubmission)
+         .filter(models.RunSubmission.registration_id.in_(reg_ids))
+         .delete(synchronize_session=False))
+    (db.query(models.Registration)
+     .filter(models.Registration.event_id == ev.id)
+     .delete(synchronize_session=False))
+    (db.query(models.EventOperator)
+     .filter(models.EventOperator.event_id == ev.id)
+     .delete(synchronize_session=False))
+    db.query(Read).filter(Read.event_id == ev.id).delete(synchronize_session=False)
+    (db.query(Participant).filter(Participant.event_id == ev.id)
+     .delete(synchronize_session=False))
+    (db.query(Checkpoint).filter(Checkpoint.event_id == ev.id)
+     .delete(synchronize_session=False))
+    db.query(Race).filter(Race.event_id == ev.id).delete(synchronize_session=False)
+    db.delete(ev)
+    db.commit()
+    print(f"  Deleted event '{cost.code}': {cost.reads} read(s), "
+          f"{cost.participants} participant(s), {cost.registrations} entry(ies).")
+    return cost
+
+
+# --------------------------------------------------------------------------
 # The checkpoint code
 #
 # Read ingest is open by design -- volunteers scan without accounts, and that

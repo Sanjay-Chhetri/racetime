@@ -1,8 +1,8 @@
 import QRCode from '/vendor/qrcode.esm.js';
 // Runner names and race names reach the bib and the certificate as markup, and
 // they arrive from a pasted list or an uploaded CSV, so `esc` is shared.
-import { esc, ok, fail, confirmDialog, withBusy, fitImageForUpload,
-         skeletonRows, emptyState } from '/js/ui.js';
+import { esc, ok, fail, confirmDialog, withBusy, fitImageForUpload, skeletonRows, emptyState, promptDialog }
+  from '/js/ui.js';
 import { mountPicker } from '/js/theme.js';
 
 const $ = id => document.getElementById(id);
@@ -251,7 +251,14 @@ const crewWarnIfEmpty = async ids => (ids.length ? true : await confirmDialog({
   confirm: 'Save anyway',
 }));
 
-$('pickEvent').onchange = e => { if (e.target.value) load(e.target.value); };
+$('pickEvent').onchange = e => {
+  if (!e.target.value) return;
+  // Picking a race from an operator screen -- the account tab, the inbox --
+  // used to load it and leave you looking at the screen you were already on,
+  // which reads as nothing having happened. Switching between races while on
+  // a race tab keeps that tab, because that is the one you were working in.
+  load(e.target.value, RACE_TABS.includes(tab) ? undefined : 'runners');
+};
 
 $('create').onclick = e => withBusy(e.currentTarget, async () => {
   $('err').textContent = '';
@@ -312,6 +319,7 @@ function showTab(name, { push = true } = {}) {
   RACE_TABS.forEach(t => { $('tab-' + t).hidden = !onRace; });
   $('schedulePanel').hidden = !(onRace && RACE_TABS.includes(name));
   $('crewPanel').hidden = !(onRace && isSuper() && RACE_TABS.includes(name));
+  $('dangerPanel').hidden = !(onRace && isSuper() && RACE_TABS.includes(name));
   $('event').hidden = !(onRace && RACE_TABS.includes(name));
   $('chooser').hidden = onRace;
 
@@ -351,6 +359,18 @@ $('tabs').addEventListener('keydown', e => {
 });
 
 /** "siliguri10k/runners" -> { code, tab }; "!members" -> { tab } */
+/* A code with a space in it reaches the address bar percent-encoded, so
+   "Virtual Run Pedong" comes back as "Virtual%20Run%20Pedong". Everything that
+   passed it straight to the API was fine, because that is what a URL path
+   wants -- but comparing it against the list of races, which carries the real
+   code, failed, and a super admin was told they were not one of the people
+   running their own race. Split on "/" first: a code containing an encoded
+   slash stays one piece. */
+const fromHash = s => {
+  if (!s) return s;
+  try { return decodeURIComponent(s); } catch { return s; }
+};
+
 function parseHash() {
   const raw = location.hash.slice(1);
   if (raw.startsWith('!')) {
@@ -358,7 +378,7 @@ function parseHash() {
     return { code: null, tab: OPS_TABS.includes(wanted) ? wanted : null };
   }
   const [code, wanted] = raw.split('/');
-  return { code, tab: TABS.includes(wanted) ? wanted : null };
+  return { code: fromHash(code), tab: TABS.includes(wanted) ? wanted : null };
 }
 
 $('switchEvent').onclick = () => {
@@ -2054,6 +2074,58 @@ $('vrCsv').onclick = e => withBusy(e.currentTarget, async () => {
   } catch (err) { vrError(err.message); }
 });
 
+
+/* ---------- deleting a race ----------
+
+   Super admins only, and it asks for the code to be typed. Everything else in
+   this app can be undone or re-derived; this cannot. The reads are the only
+   record that the race happened at all. */
+
+async function deleteEvent() {
+  if (!ev || !isSuper()) return;
+  const code = ev.code;
+  let summary;
+  try {
+    summary = await api(`/events/${encodeURIComponent(code)}/delete-preview`);
+  } catch (e) { fail(e.message); return; }
+
+  const lost = [
+    summary.reads && `${summary.reads} scan${summary.reads === 1 ? '' : 's'}`,
+    summary.participants && `${summary.participants} runner${summary.participants === 1 ? '' : 's'}`,
+    summary.registrations && `${summary.registrations} entr${summary.registrations === 1 ? 'y' : 'ies'}`,
+    summary.races && `${summary.races} race${summary.races === 1 ? '' : 's'}`,
+    summary.checkpoints && `${summary.checkpoints} checkpoint${summary.checkpoints === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(', ');
+
+  const typed = await promptDialog({
+    title: `Delete "${ev.name}"?`,
+    body: (lost ? `This destroys ${lost}. ` : 'This race has nothing in it yet. ')
+      + (summary.reads
+          ? 'The scans are the only record that this race was run, and they '
+            + 'cannot be recovered. If you only want it off the website, untick '
+            + '"Show on the home page" instead. '
+          : '')
+      + `Type the code ${code} to confirm.`,
+    placeholder: code,
+    confirm: 'Delete for ever',
+  });
+  if (typed === null) return;
+  if (typed.trim() !== code) { fail('That is not the code. Nothing deleted.'); return; }
+
+  try {
+    await api(`/events/${encodeURIComponent(code)}?confirm=`
+              + encodeURIComponent(typed.trim()), { method: 'DELETE' });
+    ok(`"${ev.name}" is gone.`);
+    ev = null;
+    crew = null;
+    myCodes = null;
+    location.hash = '';
+    await loadEventPicker('');
+    showTab('account');
+  } catch (e) { fail(e.message); }
+}
+
+$('deleteEvent').onclick = () => deleteEvent();
 
 /* ---------- the checkpoint code ----------
 
