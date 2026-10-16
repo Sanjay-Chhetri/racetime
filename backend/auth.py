@@ -265,12 +265,19 @@ def seed_users(db: DbSession) -> None:
 
     Only runs against an empty users table, so it can never overwrite a
     password someone has since changed. RACETIME_SEED_USERS overrides the
-    defaults as `name:password:role,name:password:role`.
+    defaults as `name:password:role,name:password:role`, and `none` seeds
+    nothing at all -- which is how a database being migrated into gets a
+    schema without four accounts sitting on the ids the real rows want.
     """
     if db.query(User).first() is not None:
         return
 
     spec = os.getenv("RACETIME_SEED_USERS", "").strip()
+    if spec.lower() in ("none", "no", "off", "0"):
+        # A schema with no accounts in it. What a database being migrated into
+        # needs: seeded rows take ids 1-4 and collide with the real ones on
+        # the way in.
+        return
     if spec:
         entries = []
         for chunk in spec.split(","):

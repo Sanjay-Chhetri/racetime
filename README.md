@@ -47,6 +47,7 @@ Runner     ──▶  Certificate     printable keepsake with their finish time
 - [How the timing stays trustworthy](#how-the-timing-stays-trustworthy)
 - [Project layout](#project-layout)
 - [API](#api)
+- [Moving the database](#moving-the-database)
 - [Deploying](#deploying)
 - [Race-day runbook](#race-day-runbook)
 - [Security](#security)
@@ -815,6 +816,29 @@ you will actually touch:
 | | `GET` | `/api/events/{code}/results` | Races, checkpoints and ranked results |
 
 Full table in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md#6-api-reference).
+
+---
+
+## Moving the database
+
+Everything lives in one Postgres, and `tools/move_database.py` copies it to
+another — a new Neon project, a different provider, a local file to work
+against:
+
+```bash
+python tools/move_database.py --from "<old url>" --to "<new url>" --dry-run
+python tools/move_database.py --from "<old url>" --to "<new url>"
+```
+
+It builds the schema in the destination by importing the app, so there is only
+ever one definition of the schema, then copies every table in dependency order.
+Sign-in sessions and visitor counts are left behind on purpose: everybody signs
+in again, which is cheaper than copying them. It refuses a destination that
+already has races unless you pass `--replace`.
+
+`RACETIME_SEED_USERS=none` creates the schema with no accounts at all, which is
+what a database being migrated into needs — seeded accounts take the first
+four ids and collide with the real rows coming in.
 
 ---
 

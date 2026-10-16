@@ -1223,6 +1223,8 @@ destroys.
 | **NFR-12** | On serverless the database engine uses `NullPool`. Invocations do not share memory, so the usual pool becomes one private pool per concurrent invocation and exhausts the connection limit. |
 | **NFR-13** | Both Postgres drivers ship. SQLAlchemy selects one from the URL scheme, and providers differ over `postgresql://` versus `postgresql+psycopg://`. |
 | **NFR-14** | Database constraint violations are answered as `409` with a readable message, never as a bare 500 whose body is plain text. |
+| **NFR-16** | **An image never travels with an ordinary query.** Artwork, photographs, avatars, QR codes and run evidence are `LargeBinary` columns, and SQLAlchemy selects every column by default — so the public listing, the admin picker and the start-up backfill each hauled four images per row out of Postgres and threw them away. All seven are `deferred`, so a blob is fetched only when something asks for that attribute, which is the handful of endpoints that serve the image itself. A suite reads the mappers, so a blob column added later without `deferred` fails a test rather than a bill. |
+| **NFR-17** | **Work done at import is work done on every cold start.** On a serverless host there is no "once at boot". The race backfill now asks one `EXISTS` question before loading anything; it used to read every event, then lazily every checkpoint and participant of each, to discover there was nothing to do. |
 | **NFR-15** | **Nothing is written to the filesystem at runtime.** The app therefore runs unchanged on a serverless host. On Vercel it refuses to boot without `DATABASE_URL` rather than silently starting from an empty SQLite file on each cold start. |
 
 ---
@@ -1549,7 +1551,7 @@ None of these require a data-model change; all are additive.
 
 Everything below was run against a real browser or a live server, not reasoned
 about. Anything not listed here is unverified. At the last count the suites
-carry **835 assertions** — 498 against the API, 337 driving a real
+carry **847 assertions** — 510 against the API, 337 driving a real
 browser — all passing, and each one is repeatable: they reset the accounts and
 rows they touch, because a suite that only passes the first time is a suite that
 will lie to you on the second. Three suites had to be mended to earn that
@@ -1633,6 +1635,34 @@ migrations run before anything that reads the schema**, and a new column with
 `nullable=False` is backfilled, because `ADD COLUMN` leaves existing rows
 `NULL` while the response model says otherwise. Testing only against a fresh
 database tests the one case production is never in.
+
+### The one that took the site down
+
+On 2026-10-14 the site went down for two days, and it was not a deploy. A free
+Neon plan allows 5 GB of network transfer a month; RaceTime put **5.63 GB**
+through it against a database holding **42 MB**. Every connection was then
+refused, so every route answered 500 — including the stylesheet, because
+the app opens a connection at import.
+
+Images live in the database, because nothing may be written to the filesystem
+at runtime (NFR-15). SQLAlchemy selects every column by default, so each of
+these pulled the whole image library and discarded it:
+
+- `GET /api/events/upcoming`, on every visit to the home page
+- `GET /api/events`, on **every** admin page load — which it had only
+  just started doing, because the race-crew work pointed the race picker at the
+  scoped listing instead of the code-and-name one
+- the race backfill, on **every cold start**
+
+None of those responses carries an image. They carry a URL pointing at the
+endpoint that does, and that endpoint already sent `immutable` cache headers,
+so the browsers were never the problem. The fix is `deferred` on all seven
+binary columns, and an `EXISTS` check before the backfill reads anything.
+
+The lesson is not about ORMs. It is that **the cost of a query is invisible
+until something meters it**, and a free tier is the only meter this project
+has. Nothing in 847 passing assertions could see it, because every suite runs
+against a local SQLite file where transfer is free.
 
 ### Two that got through
 

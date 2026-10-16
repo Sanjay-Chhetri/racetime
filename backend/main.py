@@ -69,6 +69,17 @@ def _backfill_default_race():
     """
     db = SessionLocal()
     try:
+        # Ask the question instead of loading everything to answer it. This
+        # runs on every cold start, and on a serverless host that is often.
+        # Loading every event, then lazily every checkpoint and participant of
+        # each, to discover there is nothing to do, was costing a full read of
+        # the database many times a day.
+        orphan = db.query(
+            db.query(Checkpoint.id).filter(Checkpoint.race_id.is_(None)).exists()
+            | db.query(Participant.id).filter(Participant.race_id.is_(None)).exists()
+        ).scalar()
+        if not orphan:
+            return
         orphan_events = {
             e for e in db.query(Event).all()
             if any(c.race_id is None for c in e.checkpoints)

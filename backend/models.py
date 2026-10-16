@@ -13,13 +13,31 @@ from sqlalchemy import (
     Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, LargeBinary,
     String, UniqueConstraint, Index,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 
 from .db import Base
 
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+# --------------------------------------------------------------------------
+# Images live in the database, and must not travel with everything else
+#
+# Nothing is written to the filesystem at runtime (NFR-15), so artwork, race
+# photographs, avatars, QR codes and run evidence are all columns. The catch is
+# that SQLAlchemy selects every column by default, so `db.query(Event).all()`
+# -- the public listing, the admin picker, the start-up backfill -- hauled four
+# images per row out of Postgres and threw them away, because none of those
+# responses carries an image. They carry a URL pointing at the endpoint that
+# does.
+#
+# On 2026-10-14 that put 5.63 GB through a free Neon plan with a 42 MB database
+# and took the site down for two days. `deferred` means a blob is fetched only
+# when something actually asks for that attribute, which is exactly the handful
+# of endpoints that serve the image itself.
+# --------------------------------------------------------------------------
 
 
 class Event(Base):
@@ -41,14 +59,14 @@ class Event(Base):
     # gives every request a fresh, empty filesystem, so anything written to
     # static/uploads is gone by the next invocation. Race artwork is one small
     # image per event, so the row is cheap and it survives any host.
-    artwork_blob = Column(LargeBinary, nullable=True)
+    artwork_blob = deferred(Column(LargeBinary, nullable=True))
     artwork_type = Column(String(32), nullable=True)
     # The certificate gets its own image. One upload cannot serve both: the bib
     # is a 180x132mm landscape card and the share card is 1080x1350 portrait,
     # so whichever way the artwork is composed, the other crop is wrong.
     # Null means "fall back to the bib artwork", which is the old behaviour.
     cert_artwork_url = Column(String(255), nullable=True)
-    cert_artwork_blob = Column(LargeBinary, nullable=True)
+    cert_artwork_blob = deferred(Column(LargeBinary, nullable=True))
     cert_artwork_type = Column(String(32), nullable=True)
 
     # placing | text | none. "placing" shows a rank only when it is genuinely an
@@ -87,7 +105,7 @@ class Event(Base):
     # certificate background is a portrait card, and neither is a photograph of
     # last year's race, which is what makes a listing worth looking at.
     photo_url = Column(String(255), nullable=True)
-    photo_blob = Column(LargeBinary, nullable=True)
+    photo_blob = deferred(Column(LargeBinary, nullable=True))
     photo_type = Column(String(32), nullable=True)
     photo_credit = Column(String(120), nullable=True)
 
@@ -125,7 +143,7 @@ class Event(Base):
     upi_name = Column(String(120), nullable=True)
     payment_note = Column(String(400), nullable=True)
     payment_qr_url = Column(String(255), nullable=True)
-    payment_qr_blob = Column(LargeBinary, nullable=True)
+    payment_qr_blob = deferred(Column(LargeBinary, nullable=True))
     payment_qr_type = Column(String(32), nullable=True)
 
     races = relationship(
@@ -335,7 +353,7 @@ class User(Base):
     # Year of birth only. Enough to keep a child's profile off the open web,
     # and less than a full date of birth, which there is no reason to hold.
     birth_year = Column(Integer, nullable=True)
-    avatar_blob = Column(LargeBinary, nullable=True)
+    avatar_blob = deferred(Column(LargeBinary, nullable=True))
     avatar_type = Column(String(32), nullable=True)
     avatar_url = Column(String(255), nullable=True)
     # A stable, guessable-but-not-enumerable handle for the shareable URL.
@@ -546,7 +564,7 @@ class RunSubmission(Base):
     # A photograph or a screenshot of the watch, app or treadmill display.
     # Private: it is somebody's movements, and often their location.
     evidence_url = Column(String(255), nullable=True)
-    evidence_blob = Column(LargeBinary, nullable=True)
+    evidence_blob = deferred(Column(LargeBinary, nullable=True))
     evidence_type = Column(String(32), nullable=True)
 
     # accepted | flagged | rejected. Accepted and flagged both count towards
@@ -625,7 +643,7 @@ class Workshop(Base):
     price_paise = Column(Integer, nullable=False, default=0)
 
     cover_url = Column(String(255), nullable=True)
-    cover_blob = Column(LargeBinary, nullable=True)
+    cover_blob = deferred(Column(LargeBinary, nullable=True))
     cover_type = Column(String(32), nullable=True)
 
     is_published = Column(Boolean, nullable=False, default=False)
