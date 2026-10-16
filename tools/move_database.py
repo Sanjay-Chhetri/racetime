@@ -2,6 +2,8 @@
 
     python tools/move_database.py --from "<old url>" --to "<new url>"
     python tools/move_database.py --from "<old url>" --to "<new url>" --merge
+    python tools/move_database.py --from "<old url>" --to "<new url>" --accounts
+    python tools/move_database.py --from "<old url>" --to "<new url>" --race kpg10k
 
 Written for the day a free Neon project runs out of its monthly network
 transfer allowance and the site has to move to a fresh one. The old data is not
@@ -16,6 +18,19 @@ What it does:
     rows and a single enormous transaction is how a copy dies at 90%
   * refuses to overwrite a destination that already has races in it, unless
     --merge (or --replace) is given
+
+`--accounts` brings the people and nothing else: who can sign in, what they
+are allowed to do, and the runners who have opened an account. No races, no
+scans, no entries. It is the quickest way to make a fresh database usable by
+the people who were already using the old one.
+
+`--race <code>` brings one race and everything that belongs to it -- its
+distances, checkpoints, start list, scans, entries and submitted runs -- plus
+only the accounts those rows actually point at. Everything else in the source
+is left where it is. That is how an old race is retrieved later without
+dragging the rest of the history along with it.
+
+Both imply `--merge`, since by then the destination is in use.
 
 `--merge` is for the case this was really written for: the site had to move to
 a fresh database in a hurry, people used it for a fortnight, and now the old
@@ -88,11 +103,69 @@ def connect(url):
 
 
 
-def plan_merge(src, dst, s_insp, d_insp):
+def scope_to_race(src, code):
+    """Everything that belongs to one race, and nothing that does not.
+
+    Returns (tables in dependency order, {table: WHERE clause}, found).
+
+    The accounts included are only those the race actually points at -- the
+    people on the start list, the people who entered, and the admins running
+    it. Somebody who never touched this race is not dragged along with it.
+    """
+    from sqlalchemy import text
+
+    with src.connect() as sc:
+        row = sc.execute(text("SELECT id FROM events WHERE code = :c"),
+                         {"c": code}).first()
+        if not row:
+            return [], {}, False
+        eid = int(row[0])
+
+        # Entries first, because the submitted runs hang off them.
+        regs = [r[0] for r in sc.execute(
+            text("SELECT id FROM registrations WHERE event_id = :e"),
+            {"e": eid}).all()]
+
+        people = set()
+        for sql in ("SELECT user_id FROM participants WHERE event_id = :e",
+                    "SELECT user_id FROM registrations WHERE event_id = :e",
+                    "SELECT user_id FROM event_operators WHERE event_id = :e"):
+            try:
+                people.update(r[0] for r in sc.execute(text(sql), {"e": eid}).all()
+                              if r[0] is not None)
+            except Exception:           # noqa: BLE001 - an older source may lack it
+                pass
+
+    in_regs = ("(" + ", ".join(str(int(r)) for r in regs) + ")") if regs else "(NULL)"
+    in_people = ("(" + ", ".join(str(int(u)) for u in sorted(people)) + ")"
+                 if people else "(NULL)")
+
+    tables = ["users", "events", "races", "checkpoints", "participants",
+              "reads", "registrations", "run_submissions", "event_operators"]
+    where = {
+        "users": f"id IN {in_people}",
+        "events": f"id = {eid}",
+        "races": f"event_id = {eid}",
+        "checkpoints": f"event_id = {eid}",
+        "participants": f"event_id = {eid}",
+        "reads": f"event_id = {eid}",
+        "registrations": f"event_id = {eid}",
+        "run_submissions": f"registration_id IN {in_regs}",
+        "event_operators": f"event_id = {eid}",
+    }
+    return tables, where, True
+
+def plan_merge(src, dst, s_insp, d_insp, wanted=None, where=None):
     """Work out the id offset, which accounts already exist, and what clashes.
+
+    Only what is actually being copied can clash. Moving one race must not be
+    stopped by a different race that happens to exist in both databases, and
+    taking the accounts alone cannot clash on a race code at all.
 
     Returns (offset, {old user id: existing id}, [blocking conflicts]).
     """
+    wanted = TABLES if wanted is None else wanted
+    where = where or {}
     from sqlalchemy import text
 
     # An offset past every id in the destination, rounded up so the number is
@@ -122,17 +195,22 @@ def plan_merge(src, dst, s_insp, d_insp):
         # sits in every link already shared.
         for label, table, col in (("race code", "events", "code"),
                                   ("workshop", "workshops", "slug")):
+            if table not in wanted:
+                continue                    # not being copied, cannot clash
             if not (s_insp.has_table(table) and d_insp.has_table(table)):
                 continue
-            mine = {r[0] for r in sc.execute(text(f"SELECT {col} FROM {table}")).all()}
+            clause = (" WHERE " + where[table]) if where.get(table) else ""
+            mine = {r[0] for r in
+                    sc.execute(text(f"SELECT {col} FROM {table}{clause}")).all()}
             yours = {r[0] for r in dc.execute(text(f"SELECT {col} FROM {table}")).all()}
             for clash in sorted(mine & yours):
                 blocked.append(f"{label}: {clash!r}")
 
         # An address or a web name shared by two different people is rarer and
         # just as undecidable.
+        only = (" AND " + where["users"]) if where.get("users") else ""
         mine = {e: i for i, e in sc.execute(text(
-            "SELECT id, email FROM users WHERE email IS NOT NULL")).all()}
+            f"SELECT id, email FROM users WHERE email IS NOT NULL{only}")).all()}
         yours = {e: i for i, e in dc.execute(text(
             "SELECT id, email FROM users WHERE email IS NOT NULL")).all()}
         for email in sorted(set(mine) & set(yours)):
@@ -205,9 +283,20 @@ def main():
     ap.add_argument("--merge", action="store_true",
                     help="add this data to a destination already in use, "
                          "shifting ids so nothing collides")
+    ap.add_argument("--accounts", action="store_true",
+                    help="only the accounts: who signs in and what they may do")
+    ap.add_argument("--race", metavar="CODE",
+                    help="only this race and what belongs to it")
     args = ap.parse_args()
 
     from sqlalchemy import inspect, text
+
+    if args.accounts and args.race:
+        print("Choose one of --accounts and --race, not both.")
+        return 1
+    # Both are additions to a database somebody is already using.
+    if args.accounts or args.race:
+        args.merge = True
 
     src = connect(args.src)
     dst = connect(args.dst)
@@ -229,10 +318,25 @@ def main():
     with dst.connect() as check:
         existing = check.execute(text("SELECT COUNT(*) FROM events")).scalar() or 0
 
+    # What to take. Worked out before the merge is planned, because what
+    # counts as a clash depends on what is actually being copied: moving one
+    # race must not be stopped by a different race that exists in both.
+    wanted, where = TABLES, {}
+    if args.accounts:
+        wanted = ["users"]
+        print("Taking the accounts only: no races, scans or entries.\n")
+    elif args.race:
+        wanted, where, found = scope_to_race(src, args.race)
+        if not found:
+            print(f"There is no race with the code {args.race!r} in the source.")
+            return 1
+        print(f"Taking the race {args.race!r} and only what belongs to it.\n")
+
     # ---- merging into a database somebody has been using ------------------
     offset, user_map = 0, {}
     if args.merge:
-        offset, user_map, blocked = plan_merge(src, dst, s_insp, d_insp)
+        offset, user_map, blocked = plan_merge(src, dst, s_insp, d_insp,
+                                               wanted, where)
         if blocked:
             print("\nThese exist in both databases, and only you can say which "
                   "should win:\n")
@@ -248,7 +352,7 @@ def main():
               f"written.\nUse --merge to add this data to it, keeping both.")
         return 1
 
-    for table in TABLES:
+    for table in wanted:
         if args.merge and table == "users" and user_map:
             pass            # handled row by row below
         if table in SKIPPABLE and args.skip_sessions:
@@ -270,8 +374,10 @@ def main():
         if not cols:
             continue
 
+        clause = (" WHERE " + where[table]) if where.get(table) else ""
         with src.connect() as sc:
-            total = sc.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0
+            total = sc.execute(
+                text(f"SELECT COUNT(*) FROM {table}{clause}")).scalar() or 0
             if not total:
                 print(f"  {table:<24} empty")
                 continue
@@ -286,7 +392,7 @@ def main():
             insert = text(f'INSERT INTO {table} ({quoted}) VALUES ({placeholders})')
             done = 0
             result = sc.execution_options(stream_results=True, yield_per=args.batch) \
-                .execute(text(f"SELECT {quoted} FROM {table}"))
+                .execute(text(f"SELECT {quoted} FROM {table}{clause}"))
             while True:
                 chunk = result.fetchmany(args.batch)
                 if not chunk:

@@ -830,6 +830,33 @@ python tools/move_database.py --from "<old url>" --to "<new url>" --dry-run
 python tools/move_database.py --from "<old url>" --to "<new url>"
 ```
 
+Three narrower forms, which are the ones you are likely to want:
+
+```bash
+# just the people: who signs in and what they may do
+python tools/move_database.py --from "<old>" --to "<new>" --accounts
+
+# one race and only what belongs to it, months later
+python tools/move_database.py --from "<old>" --to "<new>" --race kpg10k
+
+# everything, into a database already in use
+python tools/move_database.py --from "<old>" --to "<new>" --merge
+```
+
+`--accounts` brings the accounts and nothing else — no races, no scans, no
+entries. It is the quickest way to make a fresh database usable by the people
+already using the old one.
+
+`--race` brings that race's distances, checkpoints, start list, scans, entries
+and submitted runs, plus only the accounts those rows point at. Everything else
+stays where it is. Fetching a race that is already there is refused rather than
+duplicated.
+
+All three keep the ids apart: incoming rows shift past anything already in the
+destination, a username in both databases is treated as one person rather than
+two, and a race code in both stops the whole thing with a list — renaming
+somebody's race code would break every printed bib, so that is your decision.
+
 It builds the schema in the destination by importing the app, so there is only
 ever one definition of the schema, then copies every table in dependency order.
 Sign-in sessions and visitor counts are left behind on purpose: everybody signs
